@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Schoolwork</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23e9e9e7'/><text x='16' y='22.5' text-anchor='middle' font-family='Georgia,serif' font-size='19' font-weight='700' fill='%23191919'>S</text></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="page-head">
+      <h1>Schoolwork</h1>
+      <dl class="props" id="props"></dl>
+    </header>
+
+    <div class="view-bar">
+      <span class="view-tab">Board</span>
+      <div class="filters" id="filters"></div>
+    </div>
+
+    <section class="board" id="board">
+      <div class="column" data-status="todo">
+        <div class="column-head"><span class="status todo"><i></i>Not started</span><span class="count"></span></div>
+        <div class="cards"></div>
+      </div>
+      <div class="column" data-status="in_progress">
+        <div class="column-head"><span class="status in_progress"><i></i>In progress</span><span class="count"></span></div>
+        <div class="cards"></div>
+      </div>
+      <div class="column" data-status="done">
+        <div class="column-head"><span class="status done"><i></i>Complete</span><span class="count"></span></div>
+        <div class="cards"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
