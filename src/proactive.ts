@@ -49,14 +49,17 @@ const sentToday = (now: Date) => store.getProactive().sent.filter((s) => local(n
 
 // ---- rules ----
 
-/** Texts counted toward the daily cap: everything except the morning brief. */
+/** Brief and "X started texting me" notices don't count toward the cap or the unanswered rule. */
+const counted = (s: { kind: store.ProactiveKind }) => s.kind !== "brief" && s.kind !== "guest";
+
+/** Texts counted toward the daily cap. */
 function capReached(now: Date): boolean {
-  return sentToday(now).filter((s) => s.kind !== "brief").length >= config.proactive.dailyCap;
+  return sentToday(now).filter(counted).length >= config.proactive.dailyCap;
 }
 
-/** "Don't pile on": today's last proactive text (not the brief) hasn't been answered yet. */
+/** "Don't pile on": today's last counted proactive text hasn't been answered yet. */
 function unanswered(now: Date): boolean {
-  const last = sentToday(now).filter((s) => s.kind !== "brief").at(-1);
+  const last = sentToday(now).filter(counted).at(-1);
   if (!last) return false;
   const reply = store.getSettings().lastStudentMessageAt;
   return !reply || Date.parse(reply) < Date.parse(last.at);
@@ -107,7 +110,7 @@ async function morningBrief(now: Date) {
   const instruction = [
     "Proactive text: the 6:30 morning brief. It goes out every morning like clockwork, so keep it brief.",
     "What's due today and tomorrow, anything missing, and one suggestion. If nothing is due, keep it short and chill.",
-    held.length ? `Also fold in these Canvas updates that came in overnight:\n${held.join("\n")}` : "",
+    held.length ? `Also fold in these updates that came in overnight (Canvas, new people texting you):\n${held.join("\n")}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -198,6 +201,23 @@ export async function notifyCanvas(text: string, now = new Date()) {
     await send("canvas", text, now);
   } catch (err) {
     console.error("[proactive] canvas notice failed:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** "<name> (<phone>) just started texting me." Sent right away, except in quiet hours (then folded into the brief). */
+export async function notifyGuestJoined(text: string, now = new Date()) {
+  if (!store.getSettings().studentChatId || !config.linq.apiKey) {
+    console.log(`[proactive] no student chat yet; guest notice was: ${text}`);
+    return;
+  }
+  if (inQuietHours(now)) {
+    store.holdNotice(text);
+    return;
+  }
+  try {
+    await send("guest", text, now);
+  } catch (err) {
+    console.error("[proactive] guest notice failed:", err instanceof Error ? err.message : err);
   }
 }
 

@@ -54,6 +54,7 @@ iMessage ──► Linq ──► POST /webhooks/linq ─┬─► Haiku 4.5 ─
 | `src/canvasPlanner.ts`, `src/canvasApi.ts` | Read-only Canvas API enrichment (on start + every 20 min) |
 | `src/proactive.ts` | Morning brief, deadline warnings, nightly check-in, Canvas notices (quiet hours, cap, no stale texts) |
 | `src/sanitize.ts` | Strips dashes and markdown from every outgoing text |
+| `src/guests.ts` | Guest onboarding, daily limit, /guests /remove /unblock |
 | `src/tunnel.ts` | Runs the Cloudflare tunnel to the view-only dashboard and tracks its link |
 | `public/` | View-only dashboard: a Notion-style status board (plain HTML, CSS and JS) |
 | `prompts/` | All model prompts as Markdown (see below) |
@@ -120,6 +121,17 @@ One-time setup: install Cloudflare's tunnel tool
 winget install --id Cloudflare.cloudflared
 ```
 Then just run `npm start` and the Linq listener as usual. Keep the PC awake (Settings → System → Power: sleep "Never" while plugged in). Both pages refresh every 5 seconds.
+
+## Guests
+
+Anyone other than you who texts Beast is a guest. Guests can ask about your schoolwork but can't change anything (read-only tools, enforced in code).
+
+- **1:1:** a new number gets "yo, i'm beast, asher's school assistant. who's this?" (no model call). Their reply's first name is picked out by the fast model, then Beast says "sweet, ask me what asher's got due this week." and texts you "<name> (<phone>) just started texting me."
+- **Group chats:** a new number gets "wait who's (631) 413-1265?". Whoever answers, them or anyone else ("thats oli"), Beast replies "got it, oli 🤝".
+- **Limits:** 50 messages per guest per day, then one "im tapped out for today" and silence until midnight.
+- **Commands** (from your own 1:1 chat): `/guests` lists everyone, `/remove <name or number>` blocks someone silently, `/unblock <name or number>` undoes it.
+- People in `HANDLE_LABELS` (like Royce) start out as named guests with no intro.
+- Linq's free Shared Line only delivers texts from its contacts (max 20), so add new people with `linq contacts add +1…` first.
 
 ## Notes
 

@@ -5,6 +5,7 @@ import { linqWebhook } from "./imessage.js";
 import { startProactiveScheduler, tick } from "./proactive.js";
 import { startCanvasSync, syncCanvas } from "./canvas.js";
 import { startTunnel } from "./tunnel.js";
+import { seedGuestsFromConfig } from "./guests.js";
 import { syncPlanner } from "./canvasPlanner.js";
 import { canvasApiConfigured } from "./canvasApi.js";
 import * as store from "./store.js";
@@ -103,6 +104,8 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
   res.status(500).json({ error: err instanceof Error ? err.message : "internal error" });
 });
+
+seedGuestsFromConfig();
 
 app.listen(config.port, () => {
   console.log(`School assistant running at http://localhost:${config.port}`);

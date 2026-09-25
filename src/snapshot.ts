@@ -10,7 +10,7 @@ function fmt(d: Date, opts: Intl.DateTimeFormatOptions): string {
 }
 
 /** YYYY-MM-DD in the student's timezone. */
-function localDay(d: Date): string {
+export function localDay(d: Date): string {
   return fmt(d, { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/(\d+)\/(\d+)\/(\d+)/, "$3-$1-$2");
 }
 

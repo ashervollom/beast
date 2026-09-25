@@ -306,7 +306,7 @@ async function respond(conversationKey: string, channel: Channel, userText: stri
   const group = opts.group ? { roast: store.isRoastMode(conversationKey) } : undefined;
 
   const final = await callModel(
-    buildMessages(conversationKey, contextNote(channel, speaker, opts.tapback, speaker.canEdit && !group ? dashboardLinkLine() : "", group)),
+    buildMessages(conversationKey, contextNote(channel, speaker, opts.tapback, dashboardLinkLine(conversationKey, !speaker.canEdit || !!group), group)),
     speaker.canEdit,
     group ? chatTools(conversationKey) : [],
   );
@@ -314,23 +314,28 @@ async function respond(conversationKey: string, channel: Channel, userText: stri
   const text = cleanText(textOf(final));
   // In a group chat Beast doesn't have to answer everything (friends talking to each other).
   if (group && (!text || /^skip\b/i.test(text))) return null;
-  // Remember when Asher actually got the current dashboard link, so Beast doesn't keep resending it.
+  // Remember when this chat actually got the current dashboard link, so Beast doesn't keep resending it.
   const url = getDashboardUrl();
-  if (url && speaker.canEdit && !group && text.includes(url)) {
-    store.updateSettings({ dashboardLinkSent: { url, at: new Date().toISOString() } });
-  }
+  if (url && text.includes(url)) store.recordLinkSent(conversationKey, url);
   return remember(conversationKey, text || "done ✅");
 }
 
-/** "Dashboard link: https://… (current link sent: never | 2h ago)" for Asher's own chats. */
-export function dashboardLinkLine(now = new Date()): string {
+/**
+ * "Dashboard link: https://… (current link sent: never | 2h ago)". Asher's own chats get the plain version;
+ * guests and group chats get it labelled as Asher's view-only board, to share when it helps.
+ */
+export function dashboardLinkLine(conversationKey: string, forGuests = false, now = new Date()): string {
   const url = getDashboardUrl();
   if (!url) return "Dashboard link: not available right now";
-  const sent = store.getSettings().dashboardLinkSent;
-  if (!sent || sent.url !== url) return `Dashboard link: ${url} (current link sent: never)`;
-  const mins = Math.round((now.getTime() - Date.parse(sent.at)) / 60_000);
-  const ago = mins < 60 ? `${mins} min ago` : mins < 48 * 60 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)} days ago`;
-  return `Dashboard link: ${url} (current link sent: ${ago})`;
+  const sent = store.getLinkSent(conversationKey);
+  let when = "never";
+  if (sent && sent.url === url) {
+    const mins = Math.round((now.getTime() - Date.parse(sent.at)) / 60_000);
+    when = mins < 60 ? `${mins} min ago` : mins < 48 * 60 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)} days ago`;
+  }
+  return forGuests
+    ? `Dashboard link: ${url} (Asher's view-only board; current link sent in this chat: ${when})`
+    : `Dashboard link: ${url} (current link sent: ${when})`;
 }
 
 function remember(conversationKey: string, reply: string): string {

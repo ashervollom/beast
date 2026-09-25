@@ -72,11 +72,11 @@ export interface Settings {
   /** The student's own iMessage chat: the only place notifications go. */
   studentChatId: string | null;
   lastStudentMessageAt: string | null;
-  /** The dashboard link Beast last texted Asher, and when. */
+  /** Old single-chat link tracking; migrated into DB.linkSent on load. */
   dashboardLinkSent?: { url: string; at: string } | null;
 }
 
-export type ProactiveKind = "brief" | "nudge" | "final_nudge" | "nightly" | "canvas" | "catch_up";
+export type ProactiveKind = "brief" | "nudge" | "final_nudge" | "nightly" | "canvas" | "catch_up" | "guest";
 
 export interface ProactiveState {
   /** Every proactive text sent (kept ~2 weeks): drives the daily cap, "unanswered" rule and no-repeat checks. */
@@ -87,6 +87,22 @@ export interface ProactiveState {
   lastTickAt: string | null;
 }
 
+export interface Guest {
+  handle: string;
+  /** First name once Beast has it; null while unknown. */
+  name: string | null;
+  /** new = Beast asked who they are and is waiting for a name; blocked = ignored silently. */
+  status: "new" | "active" | "blocked";
+  /** Chat where Beast asked for their name, and when. */
+  askedIn: string | null;
+  askedAt: string | null;
+  askCount: number;
+  /** Whether Asher has been told they started texting Beast one-on-one. */
+  notified: boolean;
+  createdAt: string;
+  daily: { date: string; count: number };
+}
+
 interface DB {
   courses: Course[];
   assignments: Assignment[];
@@ -95,6 +111,10 @@ interface DB {
   proactive: ProactiveState;
   /** Per-chat switches, keyed like conversations ("imessage:<chatId>"). */
   chatModes: Record<string, { roast: boolean }>;
+  /** Everyone who texts Beast besides the student, keyed by normalized phone/handle. */
+  guests: Record<string, Guest>;
+  /** The dashboard link last sent in each chat (keyed like conversations), and when. */
+  linkSent: Record<string, { url: string; at: string }>;
   processedEvents: string[];
   canvas: CanvasState;
 }
@@ -125,6 +145,8 @@ const empty = (): DB => ({
   settings: { studentChatId: null, lastStudentMessageAt: null },
   proactive: { sent: [], held: [], lastTickAt: null },
   chatModes: {},
+  guests: {},
+  linkSent: {},
   processedEvents: [],
   canvas: {
     seenUids: [],
@@ -147,6 +169,11 @@ function load(): DB {
     // digestChatId was "whoever texted last"; notifications now only go to the student's chat.
     const { digestChatId: _old, lastDigestDate: _old2, ...settings } = data.settings as Settings & Record<string, unknown>;
     data.settings = { ...empty().settings, ...settings };
+    // Link tracking used to be Asher-only; it's per chat now.
+    if (data.settings.dashboardLinkSent && data.settings.studentChatId) {
+      data.linkSent[`imessage:${data.settings.studentChatId}`] ??= data.settings.dashboardLinkSent;
+    }
+    delete data.settings.dashboardLinkSent;
     // Fill fields added after an assignment was saved.
     data.assignments = data.assignments.map((a) => ({ ...CANVAS_DEFAULTS, ...a, canvasAssignmentId: a.canvasAssignmentId ?? canvasAssignmentIdFromUid(a.canvasUid) }));
     return data;
@@ -434,5 +461,53 @@ export function isRoastMode(conversationKey: string): boolean {
 
 export function setRoastMode(conversationKey: string, on: boolean) {
   db.chatModes[conversationKey] = { ...db.chatModes[conversationKey], roast: on };
+  save();
+}
+
+// ---- guests ----
+
+export const normalizeHandle = (h: string) => h.replace(/[\s()-]/g, "").toLowerCase();
+
+export function getGuest(handle: string): Guest | undefined {
+  return db.guests[normalizeHandle(handle)];
+}
+
+export function listGuests(): Guest[] {
+  return Object.values(db.guests).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function createGuest(handle: string, init: Partial<Guest> = {}): Guest {
+  const guest: Guest = {
+    handle,
+    name: null,
+    status: "new",
+    askedIn: null,
+    askedAt: null,
+    askCount: 0,
+    notified: false,
+    createdAt: now(),
+    daily: { date: "", count: 0 },
+    ...init,
+  };
+  db.guests[normalizeHandle(handle)] = guest;
+  save();
+  return guest;
+}
+
+export function updateGuest(handle: string, patch: Partial<Guest>): Guest {
+  const guest = db.guests[normalizeHandle(handle)];
+  Object.assign(guest, patch);
+  save();
+  return guest;
+}
+
+// ---- dashboard link, per chat ----
+
+export function getLinkSent(conversationKey: string): { url: string; at: string } | undefined {
+  return db.linkSent[conversationKey];
+}
+
+export function recordLinkSent(conversationKey: string, url: string) {
+  db.linkSent[conversationKey] = { url, at: now() };
   save();
 }
