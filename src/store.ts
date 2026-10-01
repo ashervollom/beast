@@ -491,6 +491,23 @@ export function getGuest(handle: string): Guest | undefined {
   return db.guests[normalizeHandle(handle)];
 }
 
+/** What forgetEveryoneExcept would remove, without removing it. */
+export function forgetPreview(keepKey: string) {
+  return { guests: Object.keys(db.guests).length, chats: Object.keys(db.conversations).filter((k) => k !== keepKey).length };
+}
+
+/** Forgets every guest and every chat except keepKey (the student's own 1:1). Assignments and courses stay. */
+export function forgetEveryoneExcept(keepKey: string) {
+  const counts = forgetPreview(keepKey);
+  db.guests = {};
+  const keepOnly = <T>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([k]) => k === keepKey));
+  db.conversations = keepOnly(db.conversations);
+  db.chatModes = keepOnly(db.chatModes);
+  db.linkSent = keepOnly(db.linkSent);
+  save();
+  return counts;
+}
+
 export function listGuests(): Guest[] {
   return Object.values(db.guests).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

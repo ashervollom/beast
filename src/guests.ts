@@ -136,7 +136,7 @@ function findGuests(query: string): store.Guest[] {
     .filter((g) => (g.name && g.name.toLowerCase() === q) || (digits.length >= 4 && g.handle.replace(/\D/g, "").endsWith(digits)));
 }
 
-/** Handles /guests, /remove <name|number>, /unblock <name|number>. Returns the reply, or null if it isn't a command. */
+/** Handles /guests, /remove, /unblock and /forget. Returns the reply, or null if it isn't a command. */
 export function handleCommand(text: string, now = new Date()): string | null {
   const m = text.trim().match(/^\/(\w+)\s*(.*)$/s);
   if (!m) return null;
@@ -169,5 +169,16 @@ export function handleCommand(text: string, now = new Date()): string | null {
     return `unblocked ${displayName(g)}`;
   }
 
-  return "commands: /guests, /remove <name or number>, /unblock <name or number>";
+  // Wipes every guest and every chat but Asher's own 1:1 (assignments stay). Asks first: it can't be undone.
+  if (cmd === "forget") {
+    const keepKey = `imessage:${store.getSettings().studentChatId}`;
+    if (arg.trim().toLowerCase() !== "everyone") {
+      const { guests, chats } = store.forgetPreview(keepKey);
+      return `that forgets ${guests} people and ${chats} other chats (names and history), only our chat stays. cant undo it. text /forget everyone to do it`;
+    }
+    const { guests, chats } = store.forgetEveryoneExcept(keepKey);
+    return `done, forgot ${guests} people and ${chats} chats. its just us now`;
+  }
+
+  return "commands: /guests, /remove <name or number>, /unblock <name or number>, /forget";
 }
