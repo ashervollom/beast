@@ -120,7 +120,7 @@ async function shareCardOnce(chatId: string) {
     console.log(`[imessage] shared contact card in ${chatId}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (/"code":\s*2005|not supported on shared lines/i.test(message)) {
+    if (/-> 403|"code":\s*2005|not supported on shared lines/i.test(message)) {
       cardsUnsupported = true;
       return void console.warn("[imessage] contact cards aren't supported on this Linq line, not sharing");
     }
