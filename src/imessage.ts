@@ -125,12 +125,27 @@ async function handleInbound(chatId: string, isGroup: boolean, messageId: string
     if (guest?.status === "blocked") return; // silently ignored, not even saved
     if (!guest) {
       // First time Beast has heard from this number: ask who they are, no reply model.
-      guest = store.createGuest(sender.handle, { askedIn: chatId, askedAt: new Date().toISOString(), askCount: 1 });
+      // Their text is held so it can still be answered once Beast has their name.
+      guest = store.createGuest(sender.handle, {
+        askedIn: chatId,
+        askedAt: new Date().toISOString(),
+        askCount: 1,
+        pendingAsk: { text, messageId },
+      });
       guests.countMessage(guest);
       console.log(`[imessage] <- (new guest ${sender.handle}) ${text}`);
-      const ask = isGroup ? guests.askInGroup(sender.handle) : guests.INTRO_1TO1;
+      // In a group, their first text may be naming someone else Beast is waiting on ("thats maya").
+      const named = isGroup ? await nameSomeoneElse(chatId, sender, text) : null;
+      if (named) store.updateGuest(guest.handle, { pendingAsk: null }); // it was an answer, not a question
+      const ask = !isGroup
+        ? guests.INTRO_1TO1
+        : named
+          ? guests.gotItAndAskInGroup(named.name!, sender.handle)
+          : guests.askInGroup(sender.handle, guests.pendingInGroup(chatId).some((g) => normalize(g.handle) !== normalize(sender.handle)));
       record(conversationKey, isGroup, sender, text, ask);
-      return reply(chatId, ask);
+      await reply(chatId, ask);
+      if (named) await answerPendingAsk(chatId, isGroup, named);
+      return;
     }
     const quota = guests.countMessage(guest);
     if (quota !== "ok") {
@@ -143,10 +158,14 @@ async function handleInbound(chatId: string, isGroup: boolean, messageId: string
       if (name) {
         guest = store.updateGuest(guest.handle, { name, status: "active" });
         sender = { ...sender, log: name, guest, speaker: guests.guestSpeaker(guest) };
-        const done = isGroup ? guests.gotItInGroup(name) : guests.AFTER_NAME_1TO1;
+        // If their first text asked something, answer it next (and skip the 1:1 "ask me…" tip).
+        const asked = guest.pendingAsk && (await guests.isRealAsk(guest.pendingAsk.text));
+        if (!asked) store.updateGuest(guest.handle, { pendingAsk: null });
+        const done = isGroup ? guests.gotItInGroup(name) : asked ? guests.gotIt1to1(name) : guests.AFTER_NAME_1TO1;
         record(conversationKey, isGroup, sender, text, done);
         await reply(chatId, done);
         if (!isGroup) await announceGuest(guest);
+        if (asked) await answerPendingAsk(chatId, isGroup, guest, true);
         return;
       }
       if (!isGroup && guest.askCount < 2) {
@@ -155,7 +174,7 @@ async function handleInbound(chatId: string, isGroup: boolean, messageId: string
         return reply(chatId, guests.ASK_AGAIN_1TO1);
       }
       // Still no name: stop asking and just talk to them.
-      guest = store.updateGuest(guest.handle, { status: "active" });
+      guest = store.updateGuest(guest.handle, { status: "active", pendingAsk: null });
       sender = { ...sender, guest, speaker: guests.guestSpeaker(guest) };
     }
     if (!isGroup && !guest.notified) await announceGuest(guest);
@@ -163,18 +182,35 @@ async function handleInbound(chatId: string, isGroup: boolean, messageId: string
 
   // ---- someone else answers "wait who's …?" in a group ("thats oli") ----
   if (isGroup) {
-    const pending = guests.pendingInGroup(chatId).filter((g) => normalize(g.handle) !== normalize(sender.handle));
-    for (const g of pending) {
-      const name = await guests.extractName(text, guests.prettyPhone(g.handle));
-      if (!name) continue;
-      store.updateGuest(g.handle, { name, status: "active" });
-      const done = guests.gotItInGroup(name);
+    const named = await nameSomeoneElse(chatId, sender, text);
+    if (named) {
+      const done = guests.gotItInGroup(named.name!);
       record(conversationKey, isGroup, sender, text, done);
-      return reply(chatId, done);
+      await reply(chatId, done);
+      return answerPendingAsk(chatId, isGroup, named);
     }
   }
 
   await converse(chatId, isGroup, messageId, text, sender, conversationKey);
+}
+
+/** Group: if this text names a guest Beast asked about ("thats oli"), saves the name and returns that guest. */
+async function nameSomeoneElse(chatId: string, sender: Sender, text: string): Promise<store.Guest | null> {
+  const pending = guests.pendingInGroup(chatId).filter((g) => normalize(g.handle) !== normalize(sender.handle));
+  const from = sender.guest?.name ?? guests.prettyPhone(sender.handle);
+  for (const g of pending) {
+    const name = await guests.extractName(text, guests.prettyPhone(g.handle), from);
+    if (name) return store.updateGuest(g.handle, { name, status: "active" });
+  }
+  return null;
+}
+
+/** Answers the first text a guest sent before Beast knew who they were, if it asked something. */
+async function answerPendingAsk(chatId: string, isGroup: boolean, guest: store.Guest, knownAsk = false) {
+  const ask = guest.pendingAsk;
+  store.updateGuest(guest.handle, { pendingAsk: null });
+  if (!ask || !(knownAsk || (await guests.isRealAsk(ask.text)))) return;
+  await converse(chatId, isGroup, ask.messageId, ask.text, whoIs(guest.handle), `imessage:${chatId}`);
 }
 
 /** Texts Asher once when a guest starts talking to Beast one-on-one. */

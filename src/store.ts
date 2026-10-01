@@ -100,6 +100,8 @@ export interface Guest {
   askCount: number;
   /** Whether Asher has been told they started texting Beast one-on-one. */
   notified: boolean;
+  /** Their first text, held while Beast asks who they are, so it can still be answered after. */
+  pendingAsk?: { text: string; messageId: string } | null;
   createdAt: string;
   daily: { date: string; count: number };
 }
