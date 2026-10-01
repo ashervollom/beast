@@ -107,17 +107,25 @@ async function reply(chatId: string, text: string) {
   await shareCardOnce(chatId);
 }
 
+/** Set once Linq says contact cards aren't available on this line (shared lines, error 2005). */
+let cardsUnsupported = false;
+
 /** After Beast's first message in a chat, shares its contact card there (name + photo) once. */
 async function shareCardOnce(chatId: string) {
   const key = `imessage:${chatId}`;
-  if (store.cardSharedIn(key)) return;
+  if (cardsUnsupported || store.cardSharedIn(key)) return;
   try {
     await linq.shareContactCard(chatId);
     store.recordCardShared(key);
     console.log(`[imessage] shared contact card in ${chatId}`);
   } catch (err) {
-    // Not fatal (e.g. an SMS chat or no card yet). It's tried again after Beast's next message there.
-    console.warn("[imessage] contact card share failed:", err instanceof Error ? err.message : err);
+    const message = err instanceof Error ? err.message : String(err);
+    if (/"code":\s*2005|not supported on shared lines/i.test(message)) {
+      cardsUnsupported = true;
+      return void console.warn("[imessage] contact cards aren't supported on this Linq line, not sharing");
+    }
+    // Not fatal (e.g. an SMS chat). It's tried again after Beast's next message there.
+    console.warn("[imessage] contact card share failed:", message);
   }
 }
 
