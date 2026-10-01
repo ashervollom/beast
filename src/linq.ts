@@ -50,20 +50,6 @@ export async function stopTyping(chatId: string) {
   return linq("DELETE", `/chats/${chatId}/typing`);
 }
 
-/** Beast's iMessage contact card (name + photo). Creates or replaces the card for that number. */
-export async function setContactCard(phoneNumber: string, firstName: string, imageUrl: string) {
-  return linq("POST", `/contact_card`, { phone_number: phoneNumber, first_name: firstName, image_url: imageUrl });
-}
-
-export async function getContactCard() {
-  return linq("GET", `/contact_card`);
-}
-
-/** Pops the "add Beast to contacts" banner in a chat. iMessage only, and only after Beast has sent a message there. */
-export async function shareContactCard(chatId: string) {
-  return linq("POST", `/chats/${chatId}/share_contact_card`);
-}
-
 export async function createWebhookSubscription(targetUrl: string, events: string[]) {
   return linq("POST", `/webhook-subscriptions`, {
     target_url: targetUrl,
