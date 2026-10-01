@@ -118,6 +118,8 @@ interface DB {
   guests: Record<string, Guest>;
   /** The dashboard link last sent in each chat (keyed like conversations), and when. */
   linkSent: Record<string, { url: string; at: string }>;
+  /** Chats (keyed like conversations) where Beast already shared its contact card, and when. */
+  cardShared: Record<string, string>;
   processedEvents: string[];
   canvas: CanvasState;
 }
@@ -150,6 +152,7 @@ const empty = (): DB => ({
   chatModes: {},
   guests: {},
   linkSent: {},
+  cardShared: {},
   processedEvents: [],
   canvas: {
     seenUids: [],
@@ -504,6 +507,7 @@ export function forgetEveryoneExcept(keepKey: string) {
   db.conversations = keepOnly(db.conversations);
   db.chatModes = keepOnly(db.chatModes);
   db.linkSent = keepOnly(db.linkSent);
+  db.cardShared = keepOnly(db.cardShared);
   save();
   return counts;
 }
@@ -545,5 +549,16 @@ export function getLinkSent(conversationKey: string): { url: string; at: string 
 
 export function recordLinkSent(conversationKey: string, url: string) {
   db.linkSent[conversationKey] = { url, at: now() };
+  save();
+}
+
+// ---- contact card, per chat ----
+
+export function cardSharedIn(conversationKey: string): boolean {
+  return Boolean(db.cardShared[conversationKey]);
+}
+
+export function recordCardShared(conversationKey: string) {
+  db.cardShared[conversationKey] = now();
   save();
 }

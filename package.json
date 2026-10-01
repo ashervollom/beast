@@ -6,6 +6,7 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "register-webhook": "tsx scripts/register-webhook.ts",
+    "contact-card": "tsx scripts/contact-card.ts",
     "canvas:sync": "tsx scripts/canvas-sync.ts"
   },
   "keywords": [],
