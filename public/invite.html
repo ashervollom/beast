@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>You're invited to Beast</title>
+  <link rel="stylesheet" href="/pages.css" />
+</head>
+<body>
+  <main id="app">
+    <h1>Beast</h1>
+    <p>Loading…</p>
+  </main>
+  <script type="module">
+    const code = location.pathname.split("/")[2] || "";
+    const app = document.getElementById("app");
+    const res = await fetch(`/api/invite/${encodeURIComponent(code)}`).then((r) => r.json()).catch(() => ({ valid: false }));
+    if (!res.valid) {
+      app.innerHTML = `<h1>Beast</h1><p>This invite has already been used or doesn't exist. Ask whoever sent it for a new one.</p>`;
+    } else {
+      const sms = res.beastNumber ? `sms:${res.beastNumber}&body=${encodeURIComponent(res.smsBody)}` : null;
+      app.innerHTML = `
+        <h1>You're in.</h1>
+        <p>Beast is a school assistant that lives in iMessage. It tracks what's due, digs through Canvas for you, and texts you before things sneak up.</p>
+        ${sms ? `<a class="btn" href="${sms}">Text Beast</a>` : ""}
+        <p class="note">${res.beastNumber ? `Or text <code>${res.smsBody}</code> to <code>${res.beastNumber}</code>.` : `Text <code>${res.smsBody}</code> to Beast.`} The invite works once.</p>`;
+    }
+  </script>
+</body>
+</html>

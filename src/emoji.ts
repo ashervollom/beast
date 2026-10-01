@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { config } from "./config.js";
+import { MODELS } from "./config.js";
+import { recordUsage } from "./metrics.js";
 import { loadPrompt } from "./prompts.js";
 
 const client = new Anthropic();
@@ -15,11 +16,12 @@ export function parseTapback(text: string): string | null {
 export async function pickEmoji(message: string): Promise<string | null> {
   try {
     const response = await client.messages.create({
-      model: config.emojiModel,
+      model: MODELS.fast,
       max_tokens: 16,
       system: loadPrompt("emoji"),
       messages: [{ role: "user", content: message.slice(0, 2000) }],
     });
+    recordUsage(MODELS.fast, response.usage);
     return parseTapback(response.content.find((b) => b.type === "text")?.text ?? "");
   } catch (err) {
     console.error("[emoji] failed:", err instanceof Error ? err.message : err);

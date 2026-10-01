@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Connect Canvas</title>
+  <link rel="stylesheet" href="/pages.css" />
+</head>
+<body>
+  <main id="app">
+    <h1>Connect Canvas</h1>
+    <p>Loading…</p>
+  </main>
+  <script type="module">
+    const token = location.pathname.split("/")[2] || "";
+    const app = document.getElementById("app");
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const info = await fetch(`/api/connect/${encodeURIComponent(token)}`).then((r) => r.json()).catch(() => ({ valid: false }));
+
+    if (!info.valid) {
+      app.innerHTML = `<h1>Link expired</h1><p>Connect links work for 30 minutes. Text Beast <code>connect canvas</code> for a fresh one.</p>`;
+    } else {
+      const host = info.canvasHost || "";
+      app.innerHTML = `
+        <h1>Connect Canvas</h1>
+        <p>${info.name ? `Hey ${esc(info.name)}. ` : ""}Beast reads your Canvas (never changes anything) to track assignments, due dates and what's missing.</p>
+        <ol>
+          <li>Open Canvas, go to <b>Account → Settings</b>.</li>
+          <li>Under <b>Approved Integrations</b>, tap <b>+ New Access Token</b>.</li>
+          <li>Purpose: <code>Beast</code>. Set the expiration to the end of the quarter.</li>
+          <li>Copy the token and paste it below.</li>
+        </ol>
+        <form id="f">
+          <label for="host">Canvas address</label>
+          <input id="host" name="host" placeholder="canvas.yourschool.edu" value="${esc(host)}" autocomplete="off" required />
+          <label for="tok">Access token</label>
+          <input id="tok" name="tok" type="password" autocomplete="off" required />
+          <button class="btn" id="go">Connect</button>
+          <p class="note" id="msg"></p>
+        </form>
+        <p class="note">Your token is encrypted and only used to read your Canvas. Text Beast <code>disconnect canvas</code> anytime to delete it. Your school's IT hasn't reviewed Beast, so this is between you and Beast; you can also revoke the token in Canvas whenever you want. <a href="/privacy" style="color:inherit">Privacy</a></p>`;
+
+      document.getElementById("f").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById("go");
+        const msg = document.getElementById("msg");
+        btn.disabled = true;
+        msg.className = "note";
+        msg.textContent = "Checking with Canvas…";
+        const res = await fetch(`/api/connect/${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ canvasHost: document.getElementById("host").value, canvasToken: document.getElementById("tok").value }),
+        }).catch(() => null);
+        const body = res ? await res.json().catch(() => ({})) : {};
+        if (res?.ok) {
+          app.innerHTML = `<h1>Connected ✓</h1><p>Beast is pulling your classes now. Head back to iMessage.</p>`;
+        } else {
+          btn.disabled = false;
+          msg.className = "note error";
+          msg.textContent = body.error || "Something went wrong. Try again.";
+        }
+      });
+    }
+  </script>
+</body>
+</html>

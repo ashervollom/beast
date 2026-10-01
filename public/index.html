@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark" />
   <title>Schoolwork</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23e9e9e7'/><text x='16' y='22.5' text-anchor='middle' font-family='Georgia,serif' font-size='19' font-weight='700' fill='%23191919'>S</text></svg>" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <main class="page">
@@ -19,6 +19,11 @@
       <span class="view-tab">Board</span>
       <div class="filters" id="filters"></div>
     </div>
+
+    <section class="exams" id="exams" hidden>
+      <div class="column-head"><span class="status exam"><i></i>Exams &amp; quizzes</span><span class="count"></span></div>
+      <div class="exam-list"></div>
+    </section>
 
     <section class="board" id="board">
       <div class="column" data-status="todo">
@@ -36,6 +41,6 @@
     </section>
   </main>
 
-  <script src="app.js" type="module"></script>
+  <script src="/app.js" type="module"></script>
 </body>
 </html>

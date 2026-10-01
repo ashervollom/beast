@@ -5,6 +5,12 @@ import { cleanText } from "./sanitize.js";
 // Thin client for the Linq Partner API v3 (https://docs.linqapp.com).
 
 async function linq(method: string, path: string, body?: unknown): Promise<any> {
+  if (config.linq.dryRun) {
+    const msg = body as { message?: { parts?: { value: string }[] }; custom_emoji?: string } | undefined;
+    const what = msg?.message?.parts?.map((p) => p.value).join("") ?? msg?.custom_emoji ?? "";
+    if (what) console.log(`[dry-run] ${method} ${path} :: ${what.replace(/\n/g, " ⏎ ")}`);
+    return null;
+  }
   if (!config.linq.apiKey) throw new Error("LINQ_API_KEY is not set");
   const res = await fetch(`${config.linq.baseUrl}${path}`, {
     method,
@@ -64,7 +70,7 @@ export async function listWebhookSubscriptions() {
 /** Standard Webhooks verification: HMAC-SHA256 over "{id}.{timestamp}.{rawBody}". */
 export function verifyWebhook(headers: Record<string, string | string[] | undefined>, rawBody: Buffer): boolean {
   const secret = config.linq.webhookSecret;
-  if (!secret) return true; // verification disabled (dev only)
+  if (!secret) return !config.cloud; // unsigned webhooks only allowed in local dev
 
   const id = String(headers["webhook-id"] ?? "");
   const timestamp = String(headers["webhook-timestamp"] ?? "");

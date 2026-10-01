@@ -7,7 +7,7 @@ import { config } from "./config.js";
 
 // Real links are random words; api.trycloudflare.com only shows up in cloudflared's error messages.
 const URL_RE = /https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/i;
-const PID_FILE = path.join(path.dirname(config.dataFile), "tunnel.pid");
+const PID_FILE = path.join(config.dataDir, "tunnel.pid");
 const MAX_DELAY_MS = 5 * 60_000;
 
 let url: string | null = null;

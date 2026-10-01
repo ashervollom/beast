@@ -2,13 +2,14 @@
 // - Assignments (UID "event-assignment-*") are created once per UID and never touched again,
 //   so edits and deletions made here stick.
 // - Every other event (lectures, office hours, ...) is mirrored as read-only context for the agent.
+// Runs for the current user (inside withUser), using their own Canvas calendar feed.
 import { config } from "./config.js";
+import { canvasIcsUrl, markConnection } from "./connections.js";
 import { parseIcs, zonedTimeToUtc, type IcsEvent } from "./ics.js";
-import { syncPlanner, startPlannerSync } from "./canvasPlanner.js";
 import { notifyCanvas } from "./proactive.js";
 import * as store from "./store.js";
+import { currentUserId } from "./userContext.js";
 
-const SYNC_INTERVAL_MS = 60 * 60_000;
 const MAX_NOTES = 500;
 
 // ---- course matching ----
@@ -35,7 +36,8 @@ function startsWithWords(long: string, short: string): boolean {
   return long === short || long.startsWith(`${short} `);
 }
 
-function resolveCourse(canvasName: string): string {
+/** Maps a Canvas course name to the board course (creating it once), so every source agrees on the name. */
+export function resolveCourse(canvasName: string): string {
   const courses = store.listCourses();
   const mapped = store.getCanvasState().courseMap[canvasName];
   const mappedCourse = mapped ? store.getCourseById(mapped) : undefined;
@@ -112,16 +114,24 @@ export interface SyncResult {
   events: number;
 }
 
-let running: Promise<SyncResult> | null = null;
+const running = new Map<string, Promise<SyncResult>>();
 
+/** One sync at a time per user. */
 export function syncCanvas(): Promise<SyncResult> {
-  running ??= doSync().finally(() => (running = null));
-  return running;
+  const id = currentUserId();
+  let p = running.get(id);
+  if (!p) {
+    p = doSync().finally(() => running.delete(id));
+    running.set(id, p);
+  }
+  return p;
 }
 
 async function doSync(): Promise<SyncResult> {
+  const feed = canvasIcsUrl();
+  if (!feed) return { imported: [], skippedPastDue: 0, events: 0 };
   try {
-    const res = await fetch(config.canvasIcsUrl, { signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(feed, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) throw new Error(`feed returned HTTP ${res.status}`);
     const events = parseIcs(await res.text(), config.timezone);
 
@@ -158,8 +168,11 @@ async function doSync(): Promise<SyncResult> {
       );
     }
 
+    // A real Canvas exam replaces the tentative one the course scan found in the syllabus.
+    for (const a of imported) if (a.type === "exam" || a.type === "quiz") replaceTentative(a);
     store.markCanvasUidsSeen(skipped);
     store.finishCanvasSync(context, null);
+    markConnection("canvas_ics", null);
     console.log(
       `[canvas] synced: ${imported.length} new, ${skipped.length} past-due skipped, ${context.length} calendar events`,
     );
@@ -169,7 +182,19 @@ async function doSync(): Promise<SyncResult> {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[canvas] sync failed:", message);
     store.finishCanvasSync(null, message);
+    if (/HTTP 40[134]/.test(message)) markConnection("canvas_ics", "feed link stopped working");
     throw err;
+  }
+}
+
+function replaceTentative(real: store.Assignment) {
+  const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const w = words(real.title);
+  for (const t of store.listAssignments({ status: "all", course: real.course ?? undefined })) {
+    if (!t.tentative) continue;
+    const overlap = [...words(t.title)].filter((x) => w.has(x) && !/^(exam|quiz|the|a)$/.test(x)).length;
+    const close = !t.dueAt || !real.dueAt || Math.abs(Date.parse(t.dueAt) - Date.parse(real.dueAt)) < 3 * 864e5;
+    if (overlap > 0 && close) store.deleteAssignment(t.id);
   }
 }
 
@@ -199,10 +224,3 @@ async function notify(items: store.Assignment[]) {
   await notifyCanvas(buildSummary(items));
 }
 
-/** On start: .ics import first (so new assignments exist), then planner enrichment. Then each on its own timer. */
-export function startCanvasSync() {
-  const runIcs = () => (config.canvasIcsUrl ? syncCanvas().catch(() => {}) : Promise.resolve()); // errors already logged
-  void runIcs().then(() => syncPlanner());
-  if (config.canvasIcsUrl) setInterval(runIcs, SYNC_INTERVAL_MS);
-  startPlannerSync();
-}

@@ -1,11 +1,12 @@
 // Enriches Canvas-imported assignments from the Canvas planner API (read-only):
 // points, missing flag, assignment link, and auto-complete when Canvas shows a submission.
-import { config } from "./config.js";
-import { canvasApiConfigured, canvasGetAll, CanvasRateLimitError } from "./canvasApi.js";
+// Runs for the current user (inside withUser).
+import { CanvasApiError, canvasGetAll, CanvasRateLimitError } from "./canvasApi.js";
+import { canvasCreds, markConnection } from "./connections.js";
 import { notifyCanvas } from "./proactive.js";
 import * as store from "./store.js";
+import { currentUserId } from "./userContext.js";
 
-const SYNC_INTERVAL_MS = 20 * 60_000;
 const DAY = 864e5;
 
 interface PlannerItem {
@@ -30,20 +31,28 @@ export interface PlannerSyncResult {
   markedDone: string[];
 }
 
-let running: Promise<PlannerSyncResult> | null = null;
+const running = new Map<string, Promise<PlannerSyncResult>>();
 
+/** One sync at a time per user. */
 export function syncPlanner(): Promise<PlannerSyncResult> {
-  running ??= doSync().finally(() => (running = null));
-  return running;
+  const id = currentUserId();
+  let p = running.get(id);
+  if (!p) {
+    p = doSync().finally(() => running.delete(id));
+    running.set(id, p);
+  }
+  return p;
 }
 
 async function doSync(): Promise<PlannerSyncResult> {
-  if (!canvasApiConfigured()) return { skipped: "CANVAS_TOKEN / CANVAS_BASE_URL not set", items: 0, matched: 0, updated: 0, markedDone: [] };
+  const creds = canvasCreds();
+  if (!creds) return { skipped: "Canvas not connected", items: 0, matched: 0, updated: 0, markedDone: [] };
   try {
     const start = new Date(Date.now() - 14 * DAY).toISOString();
     const end = new Date(Date.now() + 28 * DAY).toISOString();
     const items = await canvasGetAll<PlannerItem>(
       `/api/v1/planner/items?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}&per_page=100`,
+      creds,
     );
 
     const byAssignmentId = new Map<number, PlannerItem>();
@@ -72,7 +81,7 @@ async function doSync(): Promise<PlannerSyncResult> {
           pointsPossible: item.plannable?.points_possible ?? null,
           canvasMissing: Boolean(sub.missing),
           canvasSubmitted: submitted,
-          canvasHtmlUrl: item.html_url ? new URL(item.html_url, config.canvasBaseUrl).toString() : a.canvasHtmlUrl,
+          canvasHtmlUrl: item.html_url ? new URL(item.html_url, creds.baseUrl).toString() : a.canvasHtmlUrl,
         },
         { markDone: willMarkDone },
       );
@@ -81,15 +90,18 @@ async function doSync(): Promise<PlannerSyncResult> {
     }
 
     store.finishPlannerSync(null);
+    markConnection("canvas", null);
     console.log(`[canvas-api] planner: ${items.length} items, ${matched} matched, ${updated} updated, ${markedDone.length} marked done`);
     if (markedDone.length) await notifyCanvas(submittedMessage(markedDone.map((a) => a.title)));
     return { items: items.length, matched, updated, markedDone: markedDone.map((a) => a.title) };
   } catch (err) {
-    // Quiet by design: log one line, record it for the dashboard, never text or crash.
+    // Quiet by design: log one line, record it for the agent, never text or crash.
     const message = err instanceof Error ? err.message : String(err);
     const kind = err instanceof CanvasRateLimitError ? "rate limited, will retry next run" : "sync failed";
     console.warn(`[canvas-api] planner ${kind}: ${message}`);
     store.finishPlannerSync(message);
+    // 401 means the token expired or was revoked: the agent sees this and offers a reconnect.
+    if (err instanceof CanvasApiError && err.status === 401) markConnection("canvas", "token expired or revoked");
     return { skipped: message, items: 0, matched: 0, updated: 0, markedDone: [] };
   }
 }
@@ -98,9 +110,4 @@ export function submittedMessage(titles: string[]): string {
   if (titles.length === 1) return `saw u turned in ${titles[0]} on canvas, marked it done`;
   const list = `${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`;
   return `saw u turned in ${list} on canvas, marked them done`;
-}
-
-export function startPlannerSync() {
-  if (!canvasApiConfigured()) return;
-  setInterval(() => void syncPlanner(), SYNC_INTERVAL_MS);
 }

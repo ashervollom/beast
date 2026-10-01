@@ -5,8 +5,12 @@ import path from "node:path";
 
 const DIR = path.resolve("prompts");
 
-/** The reply model's system prompt, in this order. */
-const REPLY_PROMPT_FILES = ["persona", "voice", "rules", "crew", "you", "examples", "mechanics"];
+/**
+ * The reply model's system prompt, in this order. It's the same for every user (and cached); what Beast
+ * knows about the person it's talking to goes in the per-message context note instead.
+ */
+const REPLY_PROMPT_FILES = ["persona", "voice", "rules", "crew", "examples", "mechanics", "owner"];
+const OPTIONAL = new Set(["examples", "owner"]);
 
 /**
  * Reads prompts/<name>.md. HTML comments are stripped, and unfilled template placeholders like
@@ -32,7 +36,7 @@ export function loadPrompt(name: string, { optional = false } = {}): string {
 }
 
 export function replySystemPrompt(): string {
-  return REPLY_PROMPT_FILES.map((name) => loadPrompt(name, { optional: name === "examples" }))
+  return REPLY_PROMPT_FILES.map((name) => loadPrompt(name, { optional: OPTIONAL.has(name) }))
     .filter(Boolean)
     .join("\n\n");
 }

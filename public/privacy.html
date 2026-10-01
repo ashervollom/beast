@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beast privacy</title>
+  <link rel="stylesheet" href="/pages.css" />
+  <style>
+    main { max-width: 640px; }
+    h2 { font-size: 18px; margin: 28px 0 8px; }
+    li, p { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy, in plain words</h1>
+    <p>Beast is an early test run by one student for a small group of invited friends. Here's exactly what it does with your stuff.</p>
+
+    <h2>What Beast stores</h2>
+    <ul>
+      <li>Your phone number, name and school.</li>
+      <li>Your assignments, courses and Canvas calendar events.</li>
+      <li>Your last ~30 messages with Beast in each chat, so it remembers the conversation.</li>
+      <li>Things Beast learns about you to help (like your work schedule). Text <b>what do you know about me</b> to see them, or <b>forget</b> one.</li>
+      <li>How often each feature gets used and what it costs to run, so the builder can tell what's worth keeping.</li>
+    </ul>
+
+    <h2>Connections (all optional)</h2>
+    <ul>
+      <li><b>Canvas:</b> your access token is stored encrypted and only used to <i>read</i> Canvas. Beast never submits, edits or deletes anything there. Your school's IT hasn't reviewed Beast, so connecting it is your choice, and you can revoke the token in Canvas anytime.</li>
+      <li><b>Google (if you connect it later):</b> Gmail read access technically covers your whole inbox. Beast's code only looks at mail from your school, Canvas, Ed and Gradescope and ignores the rest.</li>
+    </ul>
+
+    <h2>Who sees it</h2>
+    <ul>
+      <li>Your dashboard link is private to you. Anyone you send it to can see your board, so text <b>new dashboard link</b> if it gets out.</li>
+      <li>In group chats Beast never shares your private links, email or grades.</li>
+      <li>Messages are processed by Anthropic's Claude to write replies, and sent through Linq to reach iMessage.</li>
+      <li>Nobody's data is sold or shared with anyone else.</li>
+    </ul>
+
+    <h2>Deleting it</h2>
+    <ul>
+      <li>Text <b>disconnect canvas</b> to delete your Canvas token.</li>
+      <li>Text <b>delete my data</b> to erase everything Beast has on you, including from its backups.</li>
+      <li>Backups are kept for up to 14 days, then deleted.</li>
+    </ul>
+  </main>
+</body>
+</html>

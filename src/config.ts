@@ -7,34 +7,58 @@ function list(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/** Model IDs live here and only here, so swapping one is a one-line change. */
+export const MODELS = {
+  /** Replies for new users (supports mid-conversation system messages, which the snapshot relies on). */
+  reply: process.env.DEFAULT_REPLY_MODEL ?? "claude-sonnet-5-5",
+  /** The owner's replies (and anyone switched with /model <name> opus). */
+  replyStrong: process.env.REPLY_MODEL ?? "claude-opus-5",
+  /** Tapbacks, name extraction, importance: small and fast. */
+  fast: process.env.EMOJI_MODEL ?? "claude-haiku-4-5",
+  /** Course scan fact extraction. */
+  extract: process.env.EXTRACT_MODEL ?? "claude-sonnet-5-5",
+};
+
+/** Running on Railway (or any host that sets CLOUD=1): one port, no tunnel, no localhost shortcuts. */
+const CLOUD = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.CLOUD === "1");
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
-  // Read-only dashboard for sharing (e.g. through a tunnel). Localhost only; empty = off.
-  viewerPort: process.env.VIEWER_PORT === "" ? null : Number(process.env.VIEWER_PORT ?? 3001),
-  // Cloudflare quick tunnel to the read-only dashboard, so Beast can text Asher a link. "off" to disable.
+  cloud: CLOUD,
+  // Public pages (dashboards, invite and connect pages). Bound to localhost; shared through the tunnel or the host.
+  viewerPort: CLOUD || process.env.VIEWER_PORT === "" ? null : Number(process.env.VIEWER_PORT ?? 3001),
+  // Cloudflare quick tunnel to the public pages. "off" to disable (always off in the cloud).
   tunnel: {
-    enabled: (process.env.TUNNEL ?? "on").toLowerCase() !== "off",
+    enabled: !CLOUD && (process.env.TUNNEL ?? "on").toLowerCase() !== "off",
     command: process.env.CLOUDFLARED_PATH || "cloudflared",
   },
   publicUrl: process.env.PUBLIC_URL ?? "",
+  /** Base URL for links Beast texts (dashboards, invites, connect pages). Falls back to the tunnel. */
+  webUrl: (process.env.WEB_URL ?? "").replace(/\/$/, ""),
+  /** Beast's own iMessage number, for the invite page's "Text Beast" button. */
+  beastNumber: process.env.BEAST_NUMBER ?? "",
   timezone: process.env.TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-  dataFile: process.env.DATA_FILE ?? "data/db.json",
+  dataDir: process.env.DATA_DIR ?? "data",
 
-  // Models: a fast, cheap one for the instant emoji tapback, a strong one for the actual reply.
-  emojiModel: process.env.EMOJI_MODEL ?? "claude-haiku-4-5",
-  replyModel: process.env.REPLY_MODEL ?? "claude-opus-5",
   replyEffort: (process.env.REPLY_EFFORT ?? "medium") as "low" | "medium" | "high" | "xhigh" | "max",
+
+  /** Encrypts stored connection secrets (Canvas tokens, feed URLs). 32 random bytes, base64. */
+  masterKey: process.env.MASTER_KEY ?? "",
+  /** Bearer token for /api/admin/*. */
+  adminToken: process.env.ADMIN_TOKEN ?? "",
 
   linq: {
     apiKey: process.env.LINQ_API_KEY ?? "",
     baseUrl: process.env.LINQ_BASE_URL ?? "https://api.linqapp.com/api/partner/v3",
     webhookSecret: process.env.LINQ_WEBHOOK_SECRET ?? "",
-    // Only these phone numbers / emails may talk to the assistant. Empty = anyone (not recommended).
-    allowedHandles: list(process.env.ALLOWED_HANDLES),
-    // The student this assistant belongs to.
-    studentName: process.env.STUDENT_NAME || "the student",
-    studentHandle: process.env.STUDENT_HANDLE ?? "",
-    // "number=name" pairs for other people the assistant should recognise (e.g. "+15555550199=Royce").
+    /** Linq organization id (not a secret), for adding Shared Line contacts. From ~/.linq/config.json. */
+    orgId: process.env.LINQ_ORG_ID ?? "",
+    /** Testing: log outgoing texts instead of sending them (no Linq calls at all). */
+    dryRun: process.env.LINQ_DRY_RUN === "1",
+    // The owner: the first user, with admin commands. Used to migrate the single-user database.
+    ownerName: process.env.STUDENT_NAME || "Owner",
+    ownerHandle: process.env.STUDENT_HANDLE ?? "",
+    // "number=name" pairs for people Beast should recognise by name in group chats.
     handleLabels: Object.fromEntries(
       list(process.env.HANDLE_LABELS)
         .map((pair) => pair.split("=").map((s) => s.trim()))
@@ -42,15 +66,30 @@ export const config = {
     ) as Record<string, string>,
   },
 
-  // Canvas calendar feed (Canvas -> Calendar -> Calendar Feed). Treat it like a password.
-  canvasIcsUrl: process.env.CANVAS_ICS_URL ?? "",
-  // Canvas REST API (read-only use). The token is a secret: never log it.
-  canvasBaseUrl: process.env.CANVAS_BASE_URL ?? "",
-  canvasToken: process.env.CANVAS_TOKEN ?? "",
+  // The owner's Canvas from before connections existed. Moved into the owner's encrypted connections once.
+  legacyCanvas: {
+    icsUrl: process.env.CANVAS_ICS_URL ?? "",
+    baseUrl: process.env.CANVAS_BASE_URL ?? "",
+    token: process.env.CANVAS_TOKEN ?? "",
+  },
+  /** Canvas host offered to new users at the default school. */
+  defaultCanvasBaseUrl: process.env.DEFAULT_CANVAS_BASE_URL ?? "https://canvas.eee.uci.edu",
 
-  dashboardPassword: process.env.DASHBOARD_PASSWORD ?? "",
+  // Off-site backups (Cloudflare R2, S3-compatible). All four set = daily backups on.
+  backups: {
+    endpoint: process.env.R2_ENDPOINT ?? "",
+    accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
+    bucket: process.env.R2_BUCKET ?? "beast-backups",
+  },
 
-  // Proactive texts to the student (local time, 24h "HH:MM").
+  limits: {
+    dailyMessages: Number(process.env.USER_DAILY_MESSAGES ?? 50),
+    maxMessageChars: 2000,
+    invitesPerUser: Number(process.env.INVITES_PER_USER ?? 1),
+  },
+
+  // Proactive texts (local time, 24h "HH:MM").
   proactive: {
     briefTime: process.env.BRIEF_TIME ?? "06:30", // every day, like clockwork; not counted in the cap
     nightTime: process.env.NIGHT_TIME ?? "21:00",

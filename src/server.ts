@@ -1,154 +1,271 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import path from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
-import { linqWebhook } from "./imessage.js";
-import { startProactiveScheduler, tick } from "./proactive.js";
-import { startCanvasSync, syncCanvas } from "./canvas.js";
-import { startTunnel } from "./tunnel.js";
-import { seedGuestsFromConfig } from "./guests.js";
+import { linqWebhook, lastWebhookAt } from "./imessage.js";
+import { buildCalendar } from "./calendarFeed.js";
+import { syncCanvas } from "./canvas.js";
 import { syncPlanner } from "./canvasPlanner.js";
-import { canvasApiConfigured } from "./canvasApi.js";
+import { canvasGet, normalizeCanvasBaseUrl } from "./canvasApi.js";
+import { saveConnection } from "./connections.js";
+import * as global from "./globalStore.js";
+import { JOBS, lastOk, startJobs, syncUserNow, type JobName } from "./jobs.js";
+import { packBundle, runBackup, snapshotBundle } from "./backups.js";
+import { inviteUrl } from "./links.js";
+import { summarize, track } from "./metrics.js";
+import { migrateIfNeeded } from "./migrate.js";
+import { suggestedCanvasHost } from "./onboarding.js";
+import { seedPeopleFromConfig } from "./people.js";
+import { tick } from "./proactive.js";
+import { statsText } from "./commands.js";
 import * as store from "./store.js";
-
-const app = express();
-const WEB_KEY = "web";
-
-// Webhook first, with the raw body, and outside dashboard auth.
-app.post("/webhooks/linq", express.raw({ type: "*/*", limit: "2mb" }), linqWebhook);
-app.get("/healthz", (_req, res) => res.json({ ok: true }));
-
-// Optional password on the dashboard + its API (any username, password = DASHBOARD_PASSWORD).
-function dashboardAuth(req: Request, res: Response, next: NextFunction) {
-  if (!config.dashboardPassword) return next();
-  const header = req.headers.authorization ?? "";
-  const given = Buffer.from(header.startsWith("Basic ") ? header.slice(6) : "", "base64").toString().split(":").slice(1).join(":");
-  const a = Buffer.from(given);
-  const b = Buffer.from(config.dashboardPassword);
-  if (a.length === b.length && timingSafeEqual(a, b)) return next();
-  res.set("WWW-Authenticate", 'Basic realm="School Assistant"').status(401).send("Authentication required");
-}
-app.use(dashboardAuth);
-app.use(express.json());
-app.use(express.static("public"));
+import { startTunnel } from "./tunnel.js";
+import { withUser } from "./userContext.js";
 
 const wrap =
   (fn: (req: Request, res: Response) => unknown) =>
   (req: Request, res: Response, next: NextFunction) =>
     Promise.resolve(fn(req, res)).catch(next);
 
-// ---- read-only handlers, shared with the viewer app ----
-const getAssignments = (req: Request, res: Response) =>
-  void res.json(store.listAssignments({ status: (req.query.status as store.AssignmentFilter["status"]) ?? "all" }));
-const getCourses = (_req: Request, res: Response) => void res.json(store.listCourses());
-const getCanvasStatus = (_req: Request, res: Response) => {
-  const s = store.getCanvasState();
-  res.json({
-    enabled: Boolean(config.canvasIcsUrl),
-    lastSyncAt: s.lastSyncAt,
-    lastError: s.lastError,
-    calendarEvents: s.events.length,
-    api: {
-      enabled: canvasApiConfigured(),
-      lastSyncAt: s.lastPlannerSyncAt,
-      lastError: s.lastPlannerError,
-    },
-  });
-};
-
-
-// Edits only from this computer: the owner app listens on every interface, so anyone on the same Wi-Fi could reach it.
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
-function localOnly(req: Request, res: Response, next: NextFunction) {
-  if (LOOPBACK.has(req.socket.remoteAddress ?? "")) return next();
-  res.status(403).json({ error: "edits are only allowed from this computer" });
+
+/** /api/admin/*: a Bearer ADMIN_TOKEN, or (locally only) a request from this computer. */
+function adminOnly(req: Request, res: Response, next: NextFunction) {
+  const header = req.headers.authorization ?? "";
+  const given = Buffer.from(header.startsWith("Bearer ") ? header.slice(7) : "");
+  const want = Buffer.from(config.adminToken);
+  if (want.length && given.length === want.length && timingSafeEqual(given, want)) return next();
+  // Locally, requests from this computer are trusted. In the cloud only the token counts.
+  if (!config.cloud && LOOPBACK.has(req.socket.remoteAddress ?? "")) return next();
+  res.status(401).json({ error: "admin only" });
 }
+
+/** Runs the handler as the user named in :userId. */
+const asUser = (fn: (req: Request, res: Response) => unknown) =>
+  wrap((req, res) => {
+    const id = String(req.params.userId);
+    if (!global.getUser(id)) return void res.status(404).json({ error: "no such user" });
+    return withUser(id, () => fn(req, res));
+  });
 
 const EDITABLE = ["title", "course", "type", "dueAt", "priority", "status", "notes"] as const;
 const pickEditable = (body: Record<string, unknown> = {}) =>
   Object.fromEntries(EDITABLE.filter((k) => k in body).map((k) => [k, body[k]])) as store.AssignmentPatch;
 
-// ---- assignments ----
-app.get("/api/assignments", getAssignments);
-app.post("/api/assignments", localOnly, (req, res) => {
-  const input = pickEditable(req.body);
-  if (typeof input.title !== "string" || !input.title.trim()) return void res.status(400).json({ error: "title is required" });
-  res.status(201).json(store.addAssignment({ ...input, title: input.title.trim() }));
+// ---- read-only dashboard data ----
+const dashboardData = () => ({
+  assignments: store.listAssignments({ status: "all" }),
+  courses: store.listCourses(),
+  canvas: {
+    connected: store.listConnectionKinds().length > 0,
+    lastSyncAt: store.getCanvasState().lastSyncAt,
+    lastPlannerSyncAt: store.getCanvasState().lastPlannerSyncAt,
+  },
 });
-app.patch("/api/assignments/:id", localOnly, (req, res) => {
-  const updated = store.updateAssignment(String(req.params.id), pickEditable(req.body));
-  updated ? res.json(updated) : res.status(404).json({ error: "not found" });
+
+/** Public pages: dashboards, invite and connect pages, health. Mounted on both apps. */
+function publicRoutes(app: express.Express) {
+  const page = (file: string) => path.resolve("public", file);
+  app.get("/healthz", (_req, res) => {
+    const stale = (Object.keys(JOBS) as JobName[]).filter((j) => {
+      const at = lastOk[j];
+      return !at || Date.now() - Date.parse(at) > 2 * JOBS[j].everyMs + 60_000;
+    });
+    // Silence from Linq for a day while people are using Beast means the webhook broke.
+    const activeRecently = global.listUsers().some((u) => u.lastActiveAt && Date.now() - Date.parse(u.lastActiveAt) < 3 * 864e5);
+    // (lastWebhookAt lives in memory, so this only applies once the server has been up a full day.)
+    const linqQuiet =
+      activeRecently && process.uptime() > 86_400 && (!lastWebhookAt || Date.now() - Date.parse(lastWebhookAt) > 864e5);
+    // Give jobs time after a restart before calling them stale (the first backup runs at 5 min).
+    const warmingUp = process.uptime() < 10 * 60;
+    const ok = (warmingUp || stale.length === 0) && !linqQuiet;
+    res.status(ok ? 200 : 503).json({ ok, staleJobs: warmingUp ? [] : stale, linqQuiet, uptimeSec: Math.round(process.uptime()) });
+  });
+
+  // Dashboard: /v/<slug> serves the page; the page reads /api/viz/<slug>.
+  app.get("/v/:slug", (req, res) => {
+    const user = global.getUserBySlug("dashboard", String(req.params.slug));
+    if (!user) return void res.status(404).send("This link doesn't work anymore. Text Beast for a new one.");
+    withUser(user.id, () => track("dashboard_open"));
+    res.sendFile(page("index.html"));
+  });
+  app.get("/api/viz/:slug", (req, res) => {
+    const user = global.getUserBySlug("dashboard", String(req.params.slug));
+    if (!user) return void res.status(404).json({ error: "not found" });
+    res.set("Cache-Control", "no-store").json({ name: user.name, ...withUser(user.id, dashboardData) });
+  });
+
+  app.get("/privacy", (_req, res) => res.sendFile(page("privacy.html")));
+
+  // Private calendar feed: /cal/<slug>.ics (calendar apps poll it every few hours).
+  app.get("/cal/:file", (req, res) => {
+    const user = global.getUserBySlug("calendar", String(req.params.file).replace(/\.ics$/i, ""));
+    if (!user) return void res.status(404).send("Not found");
+    if (!user.offeredAt.calendar_fetch) global.updateUser(user.id, { offeredAt: { ...user.offeredAt, calendar_fetch: new Date().toISOString() } });
+    withUser(user.id, () => track("calendar_fetch"));
+    res.set({ "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "no-store" }).send(withUser(user.id, () => buildCalendar(user.name)));
+  });
+
+  // Invite page.
+  app.get("/i/:code", (_req, res) => res.sendFile(page("invite.html")));
+  app.get("/api/invite/:code", (req, res) => {
+    const invite = global.getInvite(String(req.params.code));
+    const valid = Boolean(invite && !invite.usedBy);
+    res.json({ valid, beastNumber: valid ? config.beastNumber : null, smsBody: valid ? `join ${invite!.code}` : null });
+  });
+
+  // Connect pages: one-time links Beast texts. The secret never goes through iMessage.
+  app.get("/connect/:token", (_req, res) => res.sendFile(page("connect.html")));
+  app.get("/api/connect/:token", (req, res) => {
+    const tok = global.peekConnectToken(String(req.params.token));
+    if (!tok) return void res.status(404).json({ valid: false });
+    const user = global.getUser(tok.userId);
+    res.json({ valid: true, kind: tok.kind, name: user?.name ?? null, canvasHost: user ? suggestedCanvasHost(user) : "", expiresAt: tok.expiresAt });
+  });
+  app.post(
+    "/api/connect/:token",
+    express.json({ limit: "8kb" }),
+    wrap(async (req, res) => {
+      const token = String(req.params.token);
+      const tok = global.peekConnectToken(token);
+      if (!tok) return void res.status(404).json({ error: 'This link expired. Text Beast "connect canvas" for a new one.' });
+      const host = normalizeCanvasBaseUrl(String(req.body?.canvasHost ?? ""));
+      const canvasToken = String(req.body?.canvasToken ?? "").trim();
+      if (!host || canvasToken.length < 20) return void res.status(400).json({ error: "Check the Canvas address and token and try again." });
+
+      // One read-only call proves the token works; the profile also has the user's calendar feed link.
+      let feed: string | null = null;
+      try {
+        const profile = await canvasGet<{ calendar?: { ics?: string } }>("/api/v1/users/self/profile", { baseUrl: host, token: canvasToken });
+        feed = profile.calendar?.ics ?? null;
+      } catch {
+        return void res.status(400).json({ error: "Canvas didn't accept that token. Make sure you copied the whole thing." });
+      }
+      global.consumeConnectToken(token);
+      withUser(tok.userId, () => {
+        saveConnection("canvas", canvasToken, { baseUrl: host });
+        if (feed) saveConnection("canvas_ics", feed);
+        track("connect_canvas_done");
+      });
+      console.log("[connect] a user connected Canvas");
+      void syncUserNow(tok.userId).catch((err) => console.error("[connect] first sync failed:", err instanceof Error ? err.message : err));
+      res.json({ ok: true });
+    }),
+  );
+}
+
+// ---- owner app: webhook, admin API ----
+const app = express();
+app.post("/webhooks/linq", express.raw({ type: "*/*", limit: "2mb" }), linqWebhook);
+publicRoutes(app);
+app.use(express.static("public"));
+
+const admin = express.Router();
+admin.use(adminOnly, express.json());
+admin.get("/users", (_req, res) =>
+  res.json(
+    global.listUsers().map((u) => ({
+      id: u.id,
+      name: u.name,
+      handleLast4: u.handle.slice(-4),
+      role: u.role,
+      status: u.status,
+      school: u.school,
+      model: u.model,
+      invitesLeft: u.invitesLeft,
+      createdAt: u.createdAt,
+      lastActiveAt: u.lastActiveAt,
+      connections: withUser(u.id, () => store.listConnectionKinds()),
+      last7d: withUser(u.id, () => summarize(7)),
+    })),
+  ),
+);
+// Manual backup download (gzipped JSON bundle). Treat the file like a password: it has everyone's data.
+admin.get("/backup", (_req, res) => {
+  res.set({ "Content-Type": "application/gzip", "Content-Disposition": `attachment; filename="beast-${new Date().toISOString().slice(0, 10)}.json.gz"` });
+  res.send(packBundle(snapshotBundle()));
 });
-app.delete("/api/assignments/:id", localOnly, (req, res) => {
-  store.deleteAssignment(String(req.params.id)) ? res.json({ ok: true }) : res.status(404).json({ error: "not found" });
+admin.post("/backup", wrap(async (_req, res) => res.json({ key: await runBackup() })));
+admin.get("/stats", (_req, res) => res.type("text/plain").send(statsText()));
+admin.get("/feedback", (_req, res) => res.json(global.listFeedback()));
+admin.get("/waitlist", (_req, res) => res.json(global.listWaitlist()));
+admin.post("/invites", (req, res) => {
+  const own = global.owner();
+  if (!own) return void res.status(409).json({ error: "no owner yet" });
+  const invite = global.createInvite(own.id, String(req.body?.note ?? ""));
+  if (req.body?.email) global.markWaitlistInvited(String(req.body.email), invite.code);
+  res.status(201).json({ code: invite.code, url: inviteUrl(invite.code) });
 });
-// ---- courses ----
-app.get("/api/courses", getCourses);
-// ---- canvas ----
-app.get("/api/canvas/status", getCanvasStatus);
-// Manual trigger for testing: body {"what": "ics" | "planner" | "all"} (default all).
-app.post(
-  "/api/canvas/sync",
-  wrap(async (req, res) => {
+admin.get("/users/:userId/assignments", asUser((_req, res) => res.json(store.listAssignments({ status: "all" }))));
+admin.post(
+  "/users/:userId/assignments",
+  asUser((req, res) => {
+    const input = pickEditable(req.body);
+    if (typeof input.title !== "string" || !input.title.trim()) return void res.status(400).json({ error: "title is required" });
+    res.status(201).json(store.addAssignment({ ...input, title: input.title.trim() }));
+  }),
+);
+admin.patch(
+  "/users/:userId/assignments/:id",
+  asUser((req, res) => {
+    const updated = store.updateAssignment(String(req.params.id), pickEditable(req.body));
+    updated ? res.json(updated) : res.status(404).json({ error: "not found" });
+  }),
+);
+admin.delete(
+  "/users/:userId/assignments/:id",
+  asUser((req, res) => {
+    store.deleteAssignment(String(req.params.id)) ? res.json({ ok: true }) : res.status(404).json({ error: "not found" });
+  }),
+);
+// Manual Canvas sync for one user: body {"what": "ics" | "planner" | "all"} (default all).
+admin.post(
+  "/users/:userId/canvas/sync",
+  asUser(async (req, res) => {
     const what = String(req.body?.what ?? "all");
-    if (!["ics", "planner", "all"].includes(what)) return void res.status(400).json({ error: "what must be ics, planner or all" });
     const result: Record<string, unknown> = {};
     if (what !== "planner") {
-      result.ics = config.canvasIcsUrl
-        ? await syncCanvas().then(
-            (r) => ({ imported: r.imported.map((a) => a.title), skippedPastDue: r.skippedPastDue, calendarEvents: r.events }),
-            (e: Error) => ({ error: e.message }),
-          )
-        : { skipped: "CANVAS_ICS_URL not set" };
+      result.ics = await syncCanvas().then(
+        (r) => ({ imported: r.imported.map((a) => a.title), events: r.events }),
+        (e: Error) => ({ error: e.message }),
+      );
     }
     if (what !== "ics") result.planner = await syncPlanner();
     res.json(result);
   }),
 );
-
-// Preview what a proactive text would say, without sending it (for testing prompts).
-app.post(
-  "/api/proactive/preview",
-  wrap(async (req, res) => {
-    const { writeProactive } = await import("./agent.js");
-    const key = store.getSettings().studentChatId ? `imessage:${store.getSettings().studentChatId}` : WEB_KEY;
-    const kind = String(req.body?.kind ?? "brief");
-    const instruction =
-      kind === "brief"
-        ? "Proactive text: the 6:30 morning brief. It goes out every morning like clockwork, so keep it brief. What's due today and tomorrow, anything missing, and one suggestion. If nothing is due, keep it short and chill."
-        : String(req.body?.instruction ?? "");
-    if (!instruction) return void res.status(400).json({ error: "instruction is required for non-brief previews" });
-    res.json({ kind, text: await writeProactive(key, instruction, { allowSkip: kind !== "brief" }) });
+admin.post(
+  "/users/:userId/proactive/tick",
+  asUser(async (_req, res) => {
+    await tick();
+    res.json({ ok: true });
   }),
 );
-// Run the scheduler once now (it also runs every minute).
-app.post("/api/proactive/tick", wrap(async (_req, res) => { await tick(); res.json({ ok: true, state: store.getProactive() }); }));
+app.use("/api/admin", admin);
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
-  res.status(500).json({ error: err instanceof Error ? err.message : "internal error" });
+  res.status(500).json({ error: "internal error" });
 });
 
-seedGuestsFromConfig();
+migrateIfNeeded();
+seedPeopleFromConfig();
 
 app.listen(config.port, () => {
-  console.log(`School assistant running at http://localhost:${config.port}`);
-  console.log(`Linq webhook endpoint: ${config.publicUrl || "<PUBLIC_URL>"}/webhooks/linq`);
+  console.log(`Beast running at http://localhost:${config.port}`);
   if (!config.linq.webhookSecret) console.warn("! LINQ_WEBHOOK_SECRET not set: webhook signatures are NOT verified");
-  if (!config.linq.allowedHandles.length) console.warn("! ALLOWED_HANDLES not set: anyone who texts your Linq number can use the assistant");
-  startProactiveScheduler();
-  startCanvasSync();
+  if (!config.masterKey) console.warn("! MASTER_KEY not set: connections can't be saved");
+  if (!config.adminToken) console.warn("! ADMIN_TOKEN not set: /api/admin only works from this computer");
+  startJobs();
 });
 
-// ---- read-only viewer (share this one, e.g. through a tunnel) ----
-// Only the dashboard and GET endpoints exist here: no webhook, chat, edits or syncs, and no model calls.
+// ---- public app (shared through the tunnel or the host): no webhook, no admin ----
 if (config.viewerPort) {
   const viewer = express();
+  publicRoutes(viewer);
   viewer.use(express.static("public"));
-  viewer.get("/api/assignments", getAssignments);
-  viewer.get("/api/courses", getCourses);
-  viewer.get("/api/canvas/status", getCanvasStatus);
   viewer.listen(config.viewerPort, "127.0.0.1", () => {
-    console.log(`Read-only dashboard at http://localhost:${config.viewerPort} (share this one)`);
+    console.log(`Public pages at http://localhost:${config.viewerPort}`);
     startTunnel();
   });
 }

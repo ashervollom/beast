@@ -1,7 +1,12 @@
+// Per-user data: one JSON file per user (data/users/<id>.json). Every function here works on the
+// current user from withUser(); calling one without a user context throws (see userContext.ts).
+// Global data (users, invites, chat routing) lives in globalStore.ts.
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { JsonDoc } from "./fileStore.js";
+import { currentUserId } from "./userContext.js";
 
 export type AssignmentType = "homework" | "exam" | "quiz" | "project" | "reading" | "paper" | "other";
 export type Priority = "low" | "medium" | "high";
@@ -19,9 +24,13 @@ export interface Assignment {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-  source: "manual" | "canvas";
+  source: "manual" | "canvas" | "syllabus";
   canvasUid: string | null;
   url: string | null;
+  /** Found in a syllabus or course site, not confirmed by Canvas yet. */
+  tentative?: boolean;
+  /** Set on items the course scan created ("exam:<section>:<slug>"), so rescans update instead of duplicating. */
+  scanKey?: string;
   // Canvas-owned fields, refreshed from the Canvas API. Never user-editable.
   canvasAssignmentId: number | null;
   canvasHtmlUrl: string | null;
@@ -41,7 +50,7 @@ export interface ChatTurn {
   text: string;
   at: string;
   emoji?: string;
-  /** Who sent it, for user messages in group chats ("Asher", "Royce", a number). */
+  /** Who sent it, for user messages in group chats. */
   from?: string;
 }
 
@@ -69,41 +78,50 @@ export interface CanvasState {
 }
 
 export interface Settings {
-  /** The student's own iMessage chat: the only place notifications go. */
-  studentChatId: string | null;
-  lastStudentMessageAt: string | null;
-  /** Old single-chat link tracking; migrated into DB.linkSent on load. */
-  dashboardLinkSent?: { url: string; at: string } | null;
+  /** The user's own 1:1 iMessage chat: the only place proactive texts go. */
+  chatId: string | null;
+  lastMessageAt: string | null;
 }
 
-export type ProactiveKind = "brief" | "nudge" | "final_nudge" | "nightly" | "canvas" | "catch_up" | "guest";
+export type ProactiveKind = "brief" | "nudge" | "final_nudge" | "nightly" | "canvas" | "catch_up";
 
 export interface ProactiveState {
   /** Every proactive text sent (kept ~2 weeks): drives the daily cap, "unanswered" rule and no-repeat checks. */
   sent: { kind: ProactiveKind; at: string; assignmentIds?: string[] }[];
-  /** Canvas notices held back by quiet hours / the cap, folded into the next morning brief. */
+  /** Notices held back by quiet hours / the cap, folded into the next morning brief. */
   held: string[];
   /** Last scheduler tick, to detect downtime after a restart. */
   lastTickAt: string | null;
 }
 
-export interface Guest {
-  handle: string;
-  /** First name once Beast has it; null while unknown. */
-  name: string | null;
-  /** new = Beast asked who they are and is waiting for a name; blocked = ignored silently. */
-  status: "new" | "active" | "blocked";
-  /** Chat where Beast asked for their name, and when. */
-  askedIn: string | null;
-  askedAt: string | null;
-  askCount: number;
-  /** Whether Asher has been told they started texting Beast one-on-one. */
-  notified: boolean;
-  createdAt: string;
-  daily: { date: string; count: number };
+export type ConnectionKind = "canvas" | "canvas_ics";
+
+export interface Connection {
+  /** Encrypted with secrets.encrypt(). Never logged or shown. */
+  secret: string;
+  /** Non-secret details, e.g. the Canvas host. */
+  meta: Record<string, string>;
+  addedAt: string;
+  lastOkAt: string | null;
+  lastError: string | null;
 }
 
-interface DB {
+export interface MemoryItem {
+  id: string;
+  text: string;
+  at: string;
+}
+
+export interface UsageDay {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number;
+  calls: number;
+}
+
+export interface UserDB {
   courses: Course[];
   assignments: Assignment[];
   conversations: Record<string, ChatTurn[]>;
@@ -111,12 +129,67 @@ interface DB {
   proactive: ProactiveState;
   /** Per-chat switches, keyed like conversations ("imessage:<chatId>"). */
   chatModes: Record<string, { roast: boolean }>;
-  /** Everyone who texts Beast besides the student, keyed by normalized phone/handle. */
-  guests: Record<string, Guest>;
-  /** The dashboard link last sent in each chat (keyed like conversations), and when. */
+  /** The dashboard link last sent in each chat, and when. */
   linkSent: Record<string, { url: string; at: string }>;
-  processedEvents: string[];
   canvas: CanvasState;
+  connections: Partial<Record<ConnectionKind, Connection>>;
+  /** What Beast has learned about the user (the `remember` tool). */
+  memory: MemoryItem[];
+  /** Model spend per local day (YYYY-MM-DD). */
+  usage: Record<string, UsageDay>;
+  /** Feature counts per local day: metrics[date][feature] = count. */
+  metrics: Record<string, Record<string, number>>;
+  /** Deep scan results per Canvas course id (see courseScan.ts). */
+  courseProfiles: Record<string, CourseProfile>;
+}
+
+export interface CourseMeeting {
+  kind: string; // "Lec", "Dis", "Lab"
+  section: string; // "A", "A1"
+  code: string;
+  days: string; // "TuTh"
+  start: string; // "12:30"
+  end: string;
+  location: string;
+}
+
+export interface CourseFacts {
+  summary: string;
+  officeHours: { who: string; when: string; where: string }[];
+  zoomLinks: { label: string; url: string }[];
+  grading: { item: string; weight: string }[];
+  policies: { topic: string; text: string }[];
+  textbook: string | null;
+  exams: { title: string; type: string; date: string | null; time: string | null; source: string; confidence: string }[];
+  keyDates: { title: string; date: string; source: string }[];
+  sectionInfo: string | null;
+}
+
+export interface CourseProfile {
+  canvasCourseId: number;
+  /** The board's course name (matches assignments). */
+  course: string;
+  canvasUrl: string;
+  dept: string | null;
+  number: string | null;
+  title: string | null;
+  sectionCode: string | null;
+  instructors: string[];
+  meetings: CourseMeeting[];
+  final: { date: string; start: string; end: string; location: string } | null;
+  website: string | null;
+  links: { label: string; url: string; kind: string }[];
+  facts: CourseFacts | null;
+  /** Short excerpts kept for find_course_info (never whole documents). */
+  excerpts: { source: string; url: string; text: string }[];
+  gaps: string[];
+  sources: string[];
+  contentHash: string;
+  lastScannedAt: string;
+  /** Lab/discussion sections that fit; Beast asks once which one is theirs. */
+  sectionChoice: { kind: string; options: { code: string; label: string }[]; askedAt: string | null } | null;
+  /** Lab/discussion section codes the user picked. */
+  chosenSections: string[];
 }
 
 const CANVAS_DEFAULTS = {
@@ -138,16 +211,14 @@ export function canvasAssignmentIdFromUid(uid: string | null | undefined): numbe
 
 const PALETTE = ["#4f7cff", "#e2567a", "#2fb380", "#f0a020", "#9b6cf0", "#1fb5c9", "#e26d3d", "#6b8a3a"];
 
-const empty = (): DB => ({
+export const emptyUserDB = (): UserDB => ({
   courses: [],
   assignments: [],
   conversations: {},
-  settings: { studentChatId: null, lastStudentMessageAt: null },
+  settings: { chatId: null, lastMessageAt: null },
   proactive: { sent: [], held: [], lastTickAt: null },
   chatModes: {},
-  guests: {},
   linkSent: {},
-  processedEvents: [],
   canvas: {
     seenUids: [],
     courseMap: {},
@@ -157,36 +228,55 @@ const empty = (): DB => ({
     lastPlannerSyncAt: null,
     lastPlannerError: null,
   },
+  connections: {},
+  memory: [],
+  usage: {},
+  metrics: {},
+  courseProfiles: {},
 });
 
-let db: DB = load();
-
-function load(): DB {
-  try {
-    const data: DB = { ...empty(), ...JSON.parse(fs.readFileSync(config.dataFile, "utf8")) };
-    data.canvas = { ...empty().canvas, ...data.canvas };
-    data.proactive = { ...empty().proactive, ...data.proactive };
-    // digestChatId was "whoever texted last"; notifications now only go to the student's chat.
-    const { digestChatId: _old, lastDigestDate: _old2, ...settings } = data.settings as Settings & Record<string, unknown>;
-    data.settings = { ...empty().settings, ...settings };
-    // Link tracking used to be Asher-only; it's per chat now.
-    if (data.settings.dashboardLinkSent && data.settings.studentChatId) {
-      data.linkSent[`imessage:${data.settings.studentChatId}`] ??= data.settings.dashboardLinkSent;
-    }
-    delete data.settings.dashboardLinkSent;
-    // Fill fields added after an assignment was saved.
-    data.assignments = data.assignments.map((a) => ({ ...CANVAS_DEFAULTS, ...a, canvasAssignmentId: a.canvasAssignmentId ?? canvasAssignmentIdFromUid(a.canvasUid) }));
-    return data;
-  } catch {
-    return empty();
-  }
+function upgrade(data: UserDB): UserDB {
+  const e = emptyUserDB();
+  data.canvas = { ...e.canvas, ...data.canvas };
+  data.proactive = { ...e.proactive, ...data.proactive };
+  data.settings = { ...e.settings, ...data.settings };
+  // Fill fields added after an assignment was saved.
+  data.assignments = data.assignments.map((a) => ({ ...CANVAS_DEFAULTS, ...a, canvasAssignmentId: a.canvasAssignmentId ?? canvasAssignmentIdFromUid(a.canvasUid) }));
+  return data;
 }
 
-function save() {
-  fs.mkdirSync(path.dirname(config.dataFile), { recursive: true });
-  const tmp = `${config.dataFile}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, config.dataFile);
+// ---- files ----
+
+const docs = new Map<string, JsonDoc<UserDB>>();
+
+export const userFile = (userId: string) => path.join(config.dataDir, "users", `${userId}.json`);
+
+function doc(): JsonDoc<UserDB> {
+  const id = currentUserId();
+  let d = docs.get(id);
+  if (!d) {
+    d = new JsonDoc(userFile(id), emptyUserDB, upgrade);
+    docs.set(id, d);
+  }
+  return d;
+}
+
+const db = () => doc().data;
+const save = () => doc().save();
+
+/** Writes a whole user file (migration). */
+export function writeUserFile(userId: string, data: UserDB) {
+  const d = new JsonDoc(userFile(userId), emptyUserDB, upgrade);
+  Object.assign(d.data, data);
+  d.save();
+  docs.set(userId, d);
+}
+
+/** "delete my data": removes the current user's file and forgets the cached copy. */
+export function deleteCurrentUserData() {
+  const id = currentUserId();
+  docs.delete(id);
+  fs.rmSync(userFile(id), { force: true });
 }
 
 const now = () => new Date().toISOString();
@@ -194,12 +284,12 @@ const now = () => new Date().toISOString();
 // ---- courses ----
 
 export function listCourses(): Course[] {
-  return [...db.courses].sort((a, b) => a.name.localeCompare(b.name));
+  return [...db().courses].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function findCourse(name: string): Course | undefined {
   const n = name.trim().toLowerCase();
-  return db.courses.find((c) => c.name.toLowerCase() === n);
+  return db().courses.find((c) => c.name.toLowerCase() === n);
 }
 
 export function addCourse(name: string, color?: string): Course {
@@ -208,18 +298,27 @@ export function addCourse(name: string, color?: string): Course {
   const course: Course = {
     id: randomUUID(),
     name: name.trim(),
-    color: color ?? PALETTE[db.courses.length % PALETTE.length],
+    color: color ?? PALETTE[db().courses.length % PALETTE.length],
   };
-  db.courses.push(course);
+  db().courses.push(course);
   save();
   return course;
 }
 
-export function deleteCourse(id: string): boolean {
-  const before = db.courses.length;
-  db.courses = db.courses.filter((c) => c.id !== id);
+/** Renames a course everywhere (its assignments too). The id, and so the Canvas mapping, stays the same. */
+export function renameCourse(id: string, name: string) {
+  const c = getCourseById(id);
+  if (!c || c.name === name || findCourse(name)) return;
+  for (const a of db().assignments) if (a.course === c.name) a.course = name;
+  c.name = name;
   save();
-  return db.courses.length !== before;
+}
+
+export function deleteCourse(id: string): boolean {
+  const before = db().courses.length;
+  db().courses = db().courses.filter((c) => c.id !== id);
+  save();
+  return db().courses.length !== before;
 }
 
 // ---- assignments ----
@@ -233,8 +332,8 @@ export interface AssignmentFilter {
 
 export function listAssignments(filter: AssignmentFilter = {}): Assignment[] {
   const status = filter.status ?? "open";
-  return db.assignments
-    .filter((a) => {
+  return db()
+    .assignments.filter((a) => {
       if (status === "open" && a.status === "done") return false;
       if (status !== "open" && status !== "all" && a.status !== status) return false;
       if (filter.course && a.course?.toLowerCase() !== filter.course.toLowerCase()) return false;
@@ -246,7 +345,7 @@ export function listAssignments(filter: AssignmentFilter = {}): Assignment[] {
 }
 
 export function getAssignment(id: string): Assignment | undefined {
-  return db.assignments.find((a) => a.id === id);
+  return db().assignments.find((a) => a.id === id);
 }
 
 type CanvasOwned = "canvasAssignmentId" | "canvasHtmlUrl" | "pointsPossible" | "canvasMissing" | "canvasSubmitted";
@@ -273,9 +372,11 @@ export function addAssignment(input: AssignmentInput & { title: string }): Assig
     source: input.source ?? "manual",
     canvasUid: input.canvasUid ?? null,
     url: input.url ?? null,
+    ...(input.tentative ? { tentative: true } : {}),
+    ...(input.scanKey ? { scanKey: input.scanKey } : {}),
     canvasAssignmentId: canvasAssignmentIdFromUid(input.canvasUid),
   };
-  db.assignments.push(a);
+  db().assignments.push(a);
   save();
   return a;
 }
@@ -305,10 +406,10 @@ export function updateAssignment(id: string, input: AssignmentPatch): Assignment
 }
 
 export function deleteAssignment(id: string): boolean {
-  const before = db.assignments.length;
-  db.assignments = db.assignments.filter((a) => a.id !== id);
+  const before = db().assignments.length;
+  db().assignments = db().assignments.filter((a) => a.id !== id);
   save();
-  return db.assignments.length !== before;
+  return db().assignments.length !== before;
 }
 
 // ---- conversations ----
@@ -319,72 +420,63 @@ const TRIM_AT = 50;
 const TRIM_TO = 30;
 
 export function getConversation(key: string): ChatTurn[] {
-  return db.conversations[key] ?? [];
+  return db().conversations[key] ?? [];
 }
 
 export function appendTurn(key: string, turn: Omit<ChatTurn, "at">) {
-  const list = (db.conversations[key] ??= []);
+  const list = (db().conversations[key] ??= []);
   list.push({ ...turn, at: now() });
   if (list.length > TRIM_AT) list.splice(0, TRIM_AT - TRIM_TO);
   save();
 }
 
 export function clearConversation(key: string) {
-  delete db.conversations[key];
+  delete db().conversations[key];
   save();
 }
 
-// ---- settings / webhook dedupe ----
+// ---- settings ----
 
 export function getSettings(): Readonly<Settings> {
-  return db.settings;
+  return db().settings;
 }
 
 export function updateSettings(patch: Partial<Settings>) {
-  Object.assign(db.settings, patch);
+  Object.assign(db().settings, patch);
   save();
-}
-
-/** Returns true the first time an event id is seen. */
-export function markEventProcessed(eventId: string): boolean {
-  if (db.processedEvents.includes(eventId)) return false;
-  db.processedEvents.push(eventId);
-  if (db.processedEvents.length > 500) db.processedEvents.splice(0, db.processedEvents.length - 500);
-  save();
-  return true;
 }
 
 // ---- canvas ----
 
 export function getCanvasState(): Readonly<CanvasState> {
-  return db.canvas;
+  return db().canvas;
 }
 
 export function isCanvasUidSeen(uid: string): boolean {
-  return db.canvas.seenUids.includes(uid);
+  return db().canvas.seenUids.includes(uid);
 }
 
 /** Creates the assignment and records its UID in one save, so a crash can't cause a duplicate import. */
 export function importCanvasAssignment(uid: string, input: AssignmentInput & { title: string }): Assignment {
-  db.canvas.seenUids.push(uid);
+  db().canvas.seenUids.push(uid);
   return addAssignment({ ...input, source: "canvas", canvasUid: uid });
 }
 
 export function markCanvasUidsSeen(uids: string[]) {
-  for (const uid of uids) if (!db.canvas.seenUids.includes(uid)) db.canvas.seenUids.push(uid);
+  for (const uid of uids) if (!db().canvas.seenUids.includes(uid)) db().canvas.seenUids.push(uid);
   save();
 }
 
 export function mapCanvasCourse(canvasName: string, courseId: string) {
-  db.canvas.courseMap[canvasName] = courseId;
+  db().canvas.courseMap[canvasName] = courseId;
   save();
 }
 
 export function getCourseById(id: string): Course | undefined {
-  return db.courses.find((c) => c.id === id);
+  return db().courses.find((c) => c.id === id);
 }
 
-/** Updates Canvas-owned fields only; the student's own edits are left alone. Returns true if anything changed. */
+/** Updates Canvas-owned fields only; the user's own edits are left alone. Returns true if anything changed. */
 export function applyCanvasInfo(id: string, info: CanvasInfo, opts: { markDone?: boolean } = {}): boolean {
   const a = getAssignment(id);
   if (!a) return false;
@@ -406,108 +498,153 @@ export function applyCanvasInfo(id: string, info: CanvasInfo, opts: { markDone?:
 }
 
 export function finishPlannerSync(error: string | null) {
-  if (!error) db.canvas.lastPlannerSyncAt = now();
-  db.canvas.lastPlannerError = error;
+  if (!error) db().canvas.lastPlannerSyncAt = now();
+  db().canvas.lastPlannerError = error;
   save();
 }
 
 export function finishCanvasSync(events: CalendarEvent[] | null, error: string | null) {
-  if (events) db.canvas.events = events;
-  if (!error) db.canvas.lastSyncAt = now();
-  db.canvas.lastError = error;
+  if (events) db().canvas.events = events;
+  if (!error) db().canvas.lastSyncAt = now();
+  db().canvas.lastError = error;
   save();
 }
 
 export function listCalendarEvents(): CalendarEvent[] {
-  return [...db.canvas.events].sort((a, b) => a.start.localeCompare(b.start));
+  return [...db().canvas.events].sort((a, b) => a.start.localeCompare(b.start));
 }
 
 // ---- proactive texts ----
 
 export function getProactive(): Readonly<ProactiveState> {
-  return db.proactive;
+  return db().proactive;
 }
 
 export function recordProactive(kind: ProactiveKind, at: Date, assignmentIds?: string[]) {
-  db.proactive.sent.push({ kind, at: at.toISOString(), ...(assignmentIds?.length ? { assignmentIds } : {}) });
+  db().proactive.sent.push({ kind, at: at.toISOString(), ...(assignmentIds?.length ? { assignmentIds } : {}) });
   const cutoff = at.getTime() - 14 * 864e5;
-  db.proactive.sent = db.proactive.sent.filter((s) => Date.parse(s.at) >= cutoff);
+  db().proactive.sent = db().proactive.sent.filter((s) => Date.parse(s.at) >= cutoff);
   save();
 }
 
 export function holdNotice(text: string) {
-  db.proactive.held.push(text);
+  db().proactive.held.push(text);
   save();
 }
 
 export function takeHeldNotices(): string[] {
-  const held = db.proactive.held;
-  db.proactive.held = [];
+  const held = db().proactive.held;
+  db().proactive.held = [];
   save();
   return held;
 }
 
 export function setLastTick(at: Date) {
-  db.proactive.lastTickAt = at.toISOString();
+  db().proactive.lastTickAt = at.toISOString();
   save();
 }
 
 // ---- per-chat modes ----
 
-/** Roast mode: off by default. Only the student can turn it on, per chat. */
+/** Roast mode: off by default. Only the user can turn it on, per chat. */
 export function isRoastMode(conversationKey: string): boolean {
-  return db.chatModes[conversationKey]?.roast ?? false;
+  return db().chatModes[conversationKey]?.roast ?? false;
 }
 
 export function setRoastMode(conversationKey: string, on: boolean) {
-  db.chatModes[conversationKey] = { ...db.chatModes[conversationKey], roast: on };
+  db().chatModes[conversationKey] = { ...db().chatModes[conversationKey], roast: on };
   save();
-}
-
-// ---- guests ----
-
-export const normalizeHandle = (h: string) => h.replace(/[\s()-]/g, "").toLowerCase();
-
-export function getGuest(handle: string): Guest | undefined {
-  return db.guests[normalizeHandle(handle)];
-}
-
-export function listGuests(): Guest[] {
-  return Object.values(db.guests).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-}
-
-export function createGuest(handle: string, init: Partial<Guest> = {}): Guest {
-  const guest: Guest = {
-    handle,
-    name: null,
-    status: "new",
-    askedIn: null,
-    askedAt: null,
-    askCount: 0,
-    notified: false,
-    createdAt: now(),
-    daily: { date: "", count: 0 },
-    ...init,
-  };
-  db.guests[normalizeHandle(handle)] = guest;
-  save();
-  return guest;
-}
-
-export function updateGuest(handle: string, patch: Partial<Guest>): Guest {
-  const guest = db.guests[normalizeHandle(handle)];
-  Object.assign(guest, patch);
-  save();
-  return guest;
 }
 
 // ---- dashboard link, per chat ----
 
 export function getLinkSent(conversationKey: string): { url: string; at: string } | undefined {
-  return db.linkSent[conversationKey];
+  return db().linkSent[conversationKey];
 }
 
 export function recordLinkSent(conversationKey: string, url: string) {
-  db.linkSent[conversationKey] = { url, at: now() };
+  db().linkSent[conversationKey] = { url, at: now() };
   save();
+}
+
+// ---- connections (encrypted; see connections.ts) ----
+
+export function getConnectionRecord(kind: ConnectionKind): Connection | undefined {
+  return db().connections[kind];
+}
+
+export function setConnectionRecord(kind: ConnectionKind, record: Connection | null) {
+  if (record) db().connections[kind] = record;
+  else delete db().connections[kind];
+  save();
+}
+
+export function listConnectionKinds(): ConnectionKind[] {
+  return Object.keys(db().connections) as ConnectionKind[];
+}
+
+// ---- memory ----
+
+const MEMORY_MAX = 80;
+const MEMORY_CHARS = 300;
+
+export function listMemory(): MemoryItem[] {
+  return db().memory;
+}
+
+export function addMemory(text: string): MemoryItem {
+  const item = { id: randomUUID().slice(0, 8), text: text.trim().slice(0, MEMORY_CHARS), at: now() };
+  db().memory.push(item);
+  if (db().memory.length > MEMORY_MAX) db().memory.splice(0, db().memory.length - MEMORY_MAX);
+  save();
+  return item;
+}
+
+export function removeMemory(ids: string[]): number {
+  const before = db().memory.length;
+  db().memory = db().memory.filter((m) => !ids.includes(m.id));
+  save();
+  return before - db().memory.length;
+}
+
+// ---- usage and metrics ----
+
+export function recordUsage(date: string, add: Omit<UsageDay, "calls">) {
+  const day = (db().usage[date] ??= { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, calls: 0 });
+  day.inputTokens += add.inputTokens;
+  day.outputTokens += add.outputTokens;
+  day.cacheReadTokens += add.cacheReadTokens;
+  day.cacheWriteTokens += add.cacheWriteTokens;
+  day.costUsd += add.costUsd;
+  day.calls += 1;
+  save();
+}
+
+export function getUsage(): Readonly<Record<string, UsageDay>> {
+  return db().usage;
+}
+
+export function bumpMetric(date: string, feature: string, by = 1) {
+  const day = (db().metrics[date] ??= {});
+  day[feature] = (day[feature] ?? 0) + by;
+  save();
+}
+
+export function getMetrics(): Readonly<Record<string, Record<string, number>>> {
+  return db().metrics;
+}
+
+// ---- course profiles ----
+
+export function getCourseProfiles(): Readonly<Record<string, CourseProfile>> {
+  return db().courseProfiles ?? {};
+}
+
+export function setCourseProfile(profile: CourseProfile) {
+  (db().courseProfiles ??= {})[String(profile.canvasCourseId)] = profile;
+  save();
+}
+
+export function findByScanKey(key: string): Assignment | undefined {
+  return db().assignments.find((a) => a.scanKey === key);
 }

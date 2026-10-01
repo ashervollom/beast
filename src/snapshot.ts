@@ -1,4 +1,4 @@
-// Compact, per-message view of the student's workload, sent to the agent as a system message.
+// Compact, per-message view of the user's workload, sent to the agent as a system message.
 import { config } from "./config.js";
 import * as store from "./store.js";
 
@@ -36,12 +36,12 @@ function ago(iso: string | null): string {
 
 function syncLine(): string {
   const s = store.getCanvasState();
+  const feed = store.getConnectionRecord("canvas_ics");
+  const api = store.getConnectionRecord("canvas");
   const parts: string[] = [];
-  if (config.canvasIcsUrl) parts.push(`calendar ${s.lastError ? `failing (${s.lastError})` : ago(s.lastSyncAt)}`);
-  if (config.canvasBaseUrl && config.canvasToken) {
-    parts.push(`submissions/points ${s.lastPlannerError ? `failing (${s.lastPlannerError})` : ago(s.lastPlannerSyncAt)}`);
-  }
-  return parts.length ? `Canvas last synced: ${parts.join("; ")}` : "Canvas: not connected";
+  if (feed) parts.push(`calendar ${feed.lastError ? `broken (${feed.lastError}), ask them to reconnect` : s.lastError ? `failing (${s.lastError})` : ago(s.lastSyncAt)}`);
+  if (api) parts.push(`submissions/points ${api.lastError ? `broken (${api.lastError}), ask them to reconnect` : s.lastPlannerError ? `failing (${s.lastPlannerError})` : ago(s.lastPlannerSyncAt)}`);
+  return parts.length ? `Canvas last synced: ${parts.join("; ")}` : "Canvas: not connected (they can text \"connect canvas\" for a link)";
 }
 
 function itemLine(a: store.Assignment, showTimeOnly = false): string {
@@ -51,6 +51,7 @@ function itemLine(a: store.Assignment, showTimeOnly = false): string {
   if (a.pointsPossible != null) bits.push(`${a.pointsPossible} pts`);
   if (a.status === "in_progress") bits.push("in progress");
   if (a.status === "done") bits.push("marked done here");
+  if (a.tentative) bits.push("tentative, per the syllabus");
   return `- ${bits.join(" · ")}`;
 }
 
@@ -82,7 +83,7 @@ export function buildSnapshot(): string {
   });
 
   const lines = [
-    `Snapshot of the student's school work (auto-generated for this message; don't mention it verbatim).`,
+    `Snapshot of your user's school work (auto-generated for this message; don't mention it verbatim).`,
     `Now: ${nowLine()}`,
     syncLine(),
     ...section("Missing on Canvas", missing),

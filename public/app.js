@@ -15,13 +15,12 @@ const DONE_LIMIT = 8;
 
 // ---------- data ----------
 
+// Each user's board lives at /v/<slug>; the slug is the only key to their data.
+const slug = location.pathname.split("/")[2] || "";
+
 async function refresh() {
-  const [assignments, courses, canvas] = await Promise.all([
-    api("/api/assignments?status=all"),
-    api("/api/courses"),
-    api("/api/canvas/status").catch(() => null),
-  ]);
-  Object.assign(state, { assignments, courses, canvas });
+  const data = await api(`/api/viz/${encodeURIComponent(slug)}`);
+  Object.assign(state, { assignments: data.assignments, courses: data.courses, canvas: data.canvas });
   render();
 }
 
@@ -56,9 +55,9 @@ function renderProps(now) {
     ["Completed this week", `${doneThisWeek}`],
   ];
   const c = state.canvas;
-  if (c?.enabled) {
-    const error = c.lastError || c.api?.lastError;
-    rows.push(["Canvas", error ? "Sync issue" : c.lastSyncAt ? `Synced ${ago(c.lastSyncAt)}` : "Syncing…", error ? "alert" : "muted"]);
+  if (c?.connected) {
+    const last = [c.lastSyncAt, c.lastPlannerSyncAt].filter(Boolean).sort().pop();
+    rows.push(["Canvas", last ? `Synced ${ago(last)}` : "Syncing…", "muted"]);
   }
   rows.push(["Today", now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }), "muted"]);
   $("#props").innerHTML = rows.map(([k, v, cls]) => `<dt>${k}</dt><dd class="${cls || ""}">${escapeHtml(v)}</dd>`).join("");
@@ -104,8 +103,35 @@ function relative(iso, now) {
 const byDue = (a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999");
 const byCompleted = (a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? "");
 
+const isExam = (a) => a.type === "exam" || a.type === "quiz";
+
+/** Upcoming exams and quizzes get their own strip above the board (Canvas, syllabus or the official finals schedule). */
+function renderExams(now) {
+  const section = $("#exams");
+  const colors = Object.fromEntries(state.courses.map((c) => [c.name, c.color]));
+  const items = state.assignments
+    .filter((a) => isExam(a) && a.status !== "done" && (state.filter === "all" || a.course === state.filter))
+    .filter((a) => !a.dueAt || new Date(a.dueAt) > now - DAY)
+    .sort(byDue);
+  section.hidden = items.length === 0;
+  $(".count", section).textContent = items.length || "";
+  $(".exam-list", section).innerHTML = items
+    .map((a) => {
+      const when = a.dueAt ? `${formatDue(a.dueAt, now)} · ${relative(a.dueAt, now)}` : "Date TBA";
+      const soon = a.dueAt && new Date(a.dueAt) - now < 3 * DAY;
+      return `<div class="exam">
+        <span class="exam-when ${soon ? "soon" : ""}">${escapeHtml(when)}</span>
+        <span class="exam-title">${escapeHtml(a.title)}</span>
+        ${a.course ? `<span class="tag course" style="--c:${escapeHtml(colors[a.course] || "#9b9a97")}">${escapeHtml(a.course)}</span>` : ""}
+        ${a.tentative ? `<span class="tag tentative" title="From the syllabus; not on Canvas yet">Tentative</span>` : ""}
+      </div>`;
+    })
+    .join("");
+}
+
 function renderBoard(now) {
-  const visible = state.assignments.filter((a) => state.filter === "all" || a.course === state.filter);
+  // Exams and quizzes live in their own section above.
+  const visible = state.assignments.filter((a) => !isExam(a) && (state.filter === "all" || a.course === state.filter));
   const colors = Object.fromEntries(state.courses.map((c) => [c.name, c.color]));
 
   for (const column of document.querySelectorAll(".column")) {
@@ -201,6 +227,7 @@ function render() {
   const now = new Date();
   renderProps(now);
   renderFilters();
+  renderExams(now);
   renderBoard(now);
 }
 

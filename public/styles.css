@@ -136,3 +136,18 @@ button { font: inherit; color: inherit; }
   .props { grid-template-columns: 150px 1fr; }
   .board { grid-template-columns: minmax(0, 1fr); gap: 28px; }
 }
+
+/* Exams & quizzes strip above the board */
+.status.exam { background: rgb(92, 59, 35); color: rgba(255, 255, 255, 0.88); }
+.status.exam i { background: rgb(203, 145, 47); }
+.exams { margin-top: 18px; }
+.exam-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.exam {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 9px 4px; border-bottom: 1px solid var(--line); font-size: 14px;
+}
+.exam-when { color: var(--text-2); min-width: 190px; font-variant-numeric: tabular-nums; }
+.exam-when.soon { color: var(--amber); }
+.exam-title { color: var(--text); font-weight: 500; }
+.tag.tentative { background: transparent; color: var(--text-2); box-shadow: inset 0 0 0 1px var(--line); }
+@media (max-width: 720px) { .exam-when { min-width: 0; width: 100%; } }

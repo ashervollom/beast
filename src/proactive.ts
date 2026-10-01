@@ -1,8 +1,11 @@
-// Proactive texts to the student: the 6:30 morning brief, deadline warnings, the nightly check-in,
-// and Canvas notices. The scheduler decides WHEN a text may go out (quiet hours, daily cap,
+// Proactive texts to each user: the 6:30 morning brief, deadline warnings, the nightly check-in,
+// and Canvas notices. Everything here runs for the current user (inside withUser). The scheduler decides WHEN a text may go out (quiet hours, daily cap,
 // "don't pile on", no stale sends after downtime); the reply model writes WHAT it says.
 import { config } from "./config.js";
 import { writeProactive } from "./agent.js";
+import { currentUser } from "./session.js";
+import * as global from "./globalStore.js";
+import { currentUserId } from "./userContext.js";
 import { formatLocal } from "./snapshot.js";
 import { sendToChat } from "./notify.js";
 import * as store from "./store.js";
@@ -16,7 +19,7 @@ const DOWNTIME_MS = 2 * HOUR;
 /** Swappable for tests. */
 export const deps = { write: writeProactive, send: sendToChat };
 
-// ---- time helpers (all in the student's timezone) ----
+// ---- time helpers (all in the user's timezone) ----
 
 function local(d: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -49,8 +52,8 @@ const sentToday = (now: Date) => store.getProactive().sent.filter((s) => local(n
 
 // ---- rules ----
 
-/** Brief and "X started texting me" notices don't count toward the cap or the unanswered rule. */
-const counted = (s: { kind: store.ProactiveKind }) => s.kind !== "brief" && s.kind !== "guest";
+/** The brief doesn't count toward the cap or the unanswered rule. */
+const counted = (s: { kind: store.ProactiveKind }) => s.kind !== "brief";
 
 /** Texts counted toward the daily cap. */
 function capReached(now: Date): boolean {
@@ -61,7 +64,7 @@ function capReached(now: Date): boolean {
 function unanswered(now: Date): boolean {
   const last = sentToday(now).filter(counted).at(-1);
   if (!last) return false;
-  const reply = store.getSettings().lastStudentMessageAt;
+  const reply = store.getSettings().lastMessageAt;
   return !reply || Date.parse(reply) < Date.parse(last.at);
 }
 
@@ -88,7 +91,7 @@ const describe = (a: store.Assignment) =>
 // ---- sending ----
 
 async function send(kind: store.ProactiveKind, text: string, now: Date, assignmentIds?: string[]) {
-  const chatId = store.getSettings().studentChatId!;
+  const chatId = store.getSettings().chatId!;
   await deps.send(chatId, text);
   store.recordProactive(kind, now, assignmentIds);
   console.log(`[proactive] sent ${kind}: ${text.split("\n")[0]}`);
@@ -96,7 +99,7 @@ async function send(kind: store.ProactiveKind, text: string, now: Date, assignme
 
 async function write(instruction: string, fallback: string, allowSkip: boolean): Promise<string | null> {
   try {
-    return await deps.write(`imessage:${store.getSettings().studentChatId}`, instruction, { allowSkip });
+    return await deps.write(`imessage:${store.getSettings().chatId}`, instruction, { allowSkip });
   } catch (err) {
     console.error("[proactive] writer failed, using fallback:", err instanceof Error ? err.message : err);
     return fallback || null;
@@ -110,7 +113,8 @@ async function morningBrief(now: Date) {
   const instruction = [
     "Proactive text: the 6:30 morning brief. It goes out every morning like clockwork, so keep it brief.",
     "What's due today and tomorrow, anything missing, and one suggestion. If nothing is due, keep it short and chill.",
-    held.length ? `Also fold in these updates that came in overnight (Canvas, new people texting you):\n${held.join("\n")}` : "",
+    held.length ? `Also fold in these updates that came in overnight:\n${held.join("\n")}` : "",
+    weekOneQuestion(now) ? `End the brief with this question, in your own voice: ${WEEK_ONE_QUESTION}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -119,6 +123,18 @@ async function morningBrief(now: Date) {
   const text = await write(instruction, fallback, false);
   await send("brief", text ?? fallback, now);
   store.takeHeldNotices(); // only cleared once the brief actually went out
+  if (weekOneQuestion(now)) {
+    const u = currentUser();
+    global.updateUser(u.id, { offeredAt: { ...u.offeredAt, feedback_q: now.toISOString() } });
+  }
+}
+
+const WEEK_ONE_QUESTION = "what's the one thing you wish i did?";
+
+/** Once, after a user's first week: ask what they wish Beast did. Their reply is saved as feedback. */
+function weekOneQuestion(now: Date): boolean {
+  const u = currentUser();
+  return u.role !== "owner" && !u.offeredAt.feedback_q && now.getTime() - Date.parse(u.createdAt) >= 7 * 864e5;
 }
 
 /** Deadline warnings always go out (outside quiet hours), even over the cap or when unanswered. */
@@ -143,10 +159,10 @@ async function deadlineWarnings(now: Date) {
   }
 }
 
-let nightlyTriedOn: string | null = null;
+const nightlyTriedOn = new Map<string, string>();
 
 async function nightlyCheckIn(now: Date) {
-  nightlyTriedOn = today(now);
+  nightlyTriedOn.set(currentUserId(), today(now));
   const dueSoon = openWithDue().filter((a) => dueWithin(a, now, 24));
   const doneToday = store.listAssignments({ status: "done" }).filter((a) => a.completedAt && local(new Date(a.completedAt)).date === today(now));
   if (!dueSoon.length && !doneToday.length) return; // nothing to say, send nothing
@@ -188,10 +204,8 @@ async function catchUp(now: Date) {
 
 /** Sends a Canvas notice now if the rules allow, otherwise holds it for the next morning brief. */
 export async function notifyCanvas(text: string, now = new Date()) {
-  if (!store.getSettings().studentChatId || !config.linq.apiKey) {
-    console.log(`[proactive] no student chat yet (Asher needs to text once); canvas notice was:\n${text}`);
-    return;
-  }
+  if (!config.linq.apiKey && !config.linq.dryRun) return void console.log("[proactive] iMessage is off (no LINQ_API_KEY); canvas notice dropped");
+  if (!store.getSettings().chatId) return void console.log("[proactive] no chat for this user yet; canvas notice dropped");
   if (inQuietHours(now) || capReached(now) || unanswered(now)) {
     store.holdNotice(text);
     console.log("[proactive] canvas notice held for the morning brief");
@@ -204,34 +218,19 @@ export async function notifyCanvas(text: string, now = new Date()) {
   }
 }
 
-/** "<name> (<phone>) just started texting me." Sent right away, except in quiet hours (then folded into the brief). */
-export async function notifyGuestJoined(text: string, now = new Date()) {
-  if (!store.getSettings().studentChatId || !config.linq.apiKey) {
-    console.log(`[proactive] no student chat yet; guest notice was: ${text}`);
-    return;
-  }
-  if (inQuietHours(now)) {
-    store.holdNotice(text);
-    return;
-  }
-  try {
-    await send("guest", text, now);
-  } catch (err) {
-    console.error("[proactive] guest notice failed:", err instanceof Error ? err.message : err);
-  }
-}
-
 // ---- scheduler ----
 
-let running = false;
+const running = new Set<string>();
 
+/** One scheduler pass for the current user. jobs.ts calls this every minute for every active user. */
 export async function tick(now = new Date()) {
-  if (running) return;
-  running = true;
+  const id = currentUserId();
+  if (running.has(id)) return;
+  running.add(id);
   try {
     const { lastTickAt } = store.getProactive();
     store.setLastTick(now);
-    if (!store.getSettings().studentChatId || !config.linq.apiKey) return;
+    if (!store.getSettings().chatId || (!config.linq.apiKey && !config.linq.dryRun)) return;
 
     if (lastTickAt && now.getTime() - Date.parse(lastTickAt) > DOWNTIME_MS) await catchUp(now);
 
@@ -248,7 +247,7 @@ export async function tick(now = new Date()) {
     if (
       minutes >= night &&
       minutes < night + NIGHTLY_WINDOW_MIN &&
-      nightlyTriedOn !== today(now) &&
+      nightlyTriedOn.get(currentUserId()) !== today(now) &&
       !sentToday(now).some((s) => s.kind === "nightly") &&
       !capReached(now) &&
       !unanswered(now)
@@ -258,16 +257,11 @@ export async function tick(now = new Date()) {
   } catch (err) {
     console.error("[proactive] tick failed:", err instanceof Error ? err.message : err);
   } finally {
-    running = false;
+    running.delete(id);
   }
 }
 
 /** Test hook: forget in-memory state between simulated days. */
 export function resetForTests() {
-  nightlyTriedOn = null;
-}
-
-export function startProactiveScheduler() {
-  void tick();
-  setInterval(() => void tick(), MIN);
+  nightlyTriedOn.clear();
 }

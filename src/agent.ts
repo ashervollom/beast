@@ -3,10 +3,16 @@ import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
 import { config } from "./config.js";
 import * as store from "./store.js";
+import { type User } from "./globalStore.js";
+import { currentUser } from "./session.js";
 import { buildSnapshot, formatLocal } from "./snapshot.js";
 import { replySystemPrompt } from "./prompts.js";
 import { cleanText } from "./sanitize.js";
-import { getDashboardUrl } from "./tunnel.js";
+import { calendarUrl, dashboardUrl, PRIVATE_LINK } from "./links.js";
+import { courseLines } from "./courseContext.js";
+import { courseTools } from "./courseTools.js";
+import { recordUsage, track } from "./metrics.js";
+import { currentUserId } from "./userContext.js";
 
 const client = new Anthropic();
 
@@ -19,9 +25,10 @@ const priorityEnum = z.enum(["low", "medium", "high"]);
 const json = (v: unknown) => JSON.stringify(v);
 
 const ASSIGNMENT_FIELDS =
-  "Each assignment has: id, title, course, type, due_at (ISO) and due_local, status (todo | in_progress | done: the student's own tracking, " +
+  "Each assignment has: id, title, course, type, due_at (ISO) and due_local, status (todo | in_progress | done: the user's own tracking, " +
   "which is what update_assignment changes), canvas_state (done = submitted on Canvas, missing = Canvas flags it missing, pending = neither; " +
-  "null for manual items), points_possible (null if unknown), priority, source (canvas | manual) and notes.";
+  "null for manual items), points_possible (null if unknown), priority, source (canvas | manual | syllabus), tentative (true = from a syllabus, " +
+  "not confirmed on Canvas yet) and notes.";
 
 /** The agent-facing view of an assignment: only what's useful for answering, no internal plumbing. */
 function view(a: store.Assignment) {
@@ -37,8 +44,17 @@ function view(a: store.Assignment) {
     points_possible: a.pointsPossible,
     priority: a.priority,
     source: a.source,
+    ...(a.tentative ? { tentative: true } : {}),
     notes: a.notes || undefined,
   };
+}
+
+type AnyTool = ReturnType<typeof betaZodTool<any>>;
+
+/** Counts every tool call by name, so /stats shows which features testers actually use. */
+function tracked<T extends AnyTool>(tool: T): T {
+  const run = tool.run;
+  return { ...tool, run: (input: unknown, ctx?: unknown) => (track(`tool:${tool.name}`), (run as any)(input, ctx)) } as T;
 }
 
 const tools = [
@@ -71,12 +87,12 @@ const tools = [
       json(
         view(
           store.addAssignment({
-          title: i.title,
-          course: i.course,
-          type: i.type,
-          dueAt: i.due_at,
-          priority: i.priority,
-          notes: i.notes,
+            title: i.title,
+            course: i.course,
+            type: i.type,
+            dueAt: i.due_at,
+            priority: i.priority,
+            notes: i.notes,
           }),
         ),
       ),
@@ -111,7 +127,7 @@ const tools = [
   betaZodTool({
     name: "list_calendar_events",
     description:
-      "Search the student's Canvas calendar events (lectures, discussions, labs, office hours, etc.; not assignments). Defaults to the next 14 days. Times include a local-time rendering.",
+      "Search the user's Canvas calendar events (lectures, discussions, labs, office hours, etc.; not assignments). Defaults to the next 14 days. Times include a local-time rendering.",
     inputSchema: z.object({
       from: z.string().optional().describe("ISO 8601 start of window (default: now)"),
       to: z.string().optional().describe("ISO 8601 end of window (default: 14 days after from)"),
@@ -137,7 +153,7 @@ const tools = [
   }),
   betaZodTool({
     name: "list_courses",
-    description: "List the student's courses.",
+    description: "List the user's courses.",
     inputSchema: z.object({}),
     run: async () => json(store.listCourses()),
   }),
@@ -147,7 +163,29 @@ const tools = [
     inputSchema: z.object({ name: z.string() }),
     run: async ({ name }) => json(store.addCourse(name)),
   }),
-];
+].map(tracked);
+
+/** Only for the user's own 1:1 chat: what Beast remembers about them. */
+const memoryTools = [
+  betaZodTool({
+    name: "remember",
+    description:
+      "Save a lasting fact about your user that will help later: schedule (work shifts, gym, commute), goals, preferences, how they study, " +
+      "people they mention, things they asked you to remember. One short fact per call, in your own words. Not for assignments (use add_assignment) " +
+      "and not for one-off chatter.",
+    inputSchema: z.object({ fact: z.string() }),
+    run: async ({ fact }) => `Saved (${store.addMemory(fact).id}).`,
+  }),
+  betaZodTool({
+    name: "forget",
+    description: "Delete saved facts about your user by id (from the \"What you know about them\" list), e.g. when they say \"forget that\" or a fact is no longer true.",
+    inputSchema: z.object({ ids: z.array(z.string()) }),
+    run: async ({ ids }) => `Removed ${store.removeMemory(ids)}.`,
+  }),
+].map(tracked);
+
+/** Class info from the deep scan: own chat only (it includes Zoom links and the user's schedule). */
+const trackedCourseTools = courseTools.map(tracked);
 
 function localTime(value: string, allDay: boolean): string {
   if (allDay) return `${value} (all day)`;
@@ -187,26 +225,46 @@ export function historyWindow(turns: store.ChatTurn[]): Anthropic.Beta.BetaMessa
 export interface Speaker {
   /** "Talking with: ..." line for the context note. */
   talkingWith: string;
-  /** Only the student can change data; everyone else is a read-only viewer. */
-  canEdit: boolean;
-  /** "his" for the student, "their" for anyone else, used in the tapback line. */
-  pronoun: "his" | "their";
+  /** True for the user this Beast belongs to; everyone else is a read-only viewer. */
+  isUser: boolean;
 }
 
-export const STUDENT: Speaker = {
-  talkingWith: `Talking with: ${config.linq.studentName} (the student).`,
-  canEdit: true,
-  pronoun: "his",
-};
+const nameOf = (u: User) => u.name ?? "your user";
+
+export function userSpeaker(u: User): Speaker {
+  return { talkingWith: `Talking with: ${nameOf(u)} (your user; this is their Beast and all the data is theirs).`, isUser: true };
+}
+
+/** Someone else in the user's group chat (a friend, or another Beast user who isn't this chat's owner). */
+export function otherSpeaker(name: string, owner: User): Speaker {
+  return {
+    talkingWith:
+      `Talking with: ${name}, someone in ${nameOf(owner)}'s group chat, not your user. Talk about ${nameOf(owner)}'s work as theirs. ` +
+      `Only ${nameOf(owner)} can change things.`,
+    isUser: false,
+  };
+}
 
 const READ_ONLY_TOOLS = new Set(["list_assignments", "list_calendar_events", "list_courses"]);
 const viewerTools = tools.filter((t) => READ_ONLY_TOOLS.has(t.name));
 
 const CHANNEL_LABEL: Record<Channel, string> = { imessage: "iMessage", web: "web dashboard" };
 
+function aboutUser(u: User): string {
+  const lines = [`About your user: ${[u.name, u.school].filter(Boolean).join(", ") || "not much yet"}.`];
+  const memory = store.listMemory();
+  lines.push(
+    memory.length
+      ? `What you know about them (saved with remember; use forget with the id to remove one):\n${memory.map((m) => `- [${m.id}] ${m.text}`).join("\n")}`
+      : "What you know about them: nothing saved yet. Use remember when you learn something lasting.",
+  );
+  return lines.join("\n");
+}
+
 function contextNote(
   channel: Channel,
   speaker: Speaker,
+  user: User,
   tapback: string | null | undefined,
   extra = "",
   group?: { roast: boolean },
@@ -214,11 +272,17 @@ function contextNote(
   const lines = [speaker.talkingWith, `Channel: ${CHANNEL_LABEL[channel]}`];
   if (group) {
     lines.push("Chat: group chat, other people can see everything you say. You can reply SKIP to stay quiet.");
-    lines.push(`Roast mode: ${group.roast ? "ON (Asher said you can roast him)" : "off (hype Asher up and defend him)"}`);
+    lines.push(
+      `Roast mode: ${group.roast ? `ON (${nameOf(user)} said you can roast them)` : `off (hype ${nameOf(user)} up and defend them)`}`,
+    );
   }
-  if (tapback !== undefined) lines.push(`tapback on ${speaker.pronoun} message: ${tapback ?? "none"}`);
+  if (tapback !== undefined) lines.push(`tapback on this message: ${tapback ?? "none"}`);
   if (extra) lines.push(extra);
+  // Private context only in the user's own 1:1 chat.
+  if (speaker.isUser && !group) lines.push(aboutUser(user));
   lines.push(buildSnapshot());
+  // Class schedule and course-scan context: the user's own chats only (it's their schedule).
+  if (speaker.isUser && !group) lines.push(...courseLines(channel !== "web" && !extra.startsWith("Proactive")));
   return lines.join("\n");
 }
 
@@ -232,35 +296,43 @@ export function buildMessages(conversationKey: string, note: string): Anthropic.
   return messages;
 }
 
-/** Chat-specific tools: roast mode is per chat, and only Asher gets to flip it. */
+/** Chat-specific tools: roast mode is per chat, and only the user gets to flip it. */
 function chatTools(conversationKey: string) {
   return [
     betaZodTool({
       name: "set_roast_mode",
       description:
-        "Turn roast mode on or off for this group chat. Only when Asher himself clearly says you can roast him (on) or to stop (off).",
+        "Turn roast mode on or off for this group chat. Only when your user themselves clearly says you can roast them (on) or to stop (off).",
       inputSchema: z.object({ on: z.boolean() }),
       run: async ({ on }) => {
         store.setRoastMode(conversationKey, on);
         return `Roast mode is now ${on ? "on" : "off"} for this chat.`;
       },
     }),
-  ];
+  ].map(tracked);
 }
 
-async function callModel(messages: Anthropic.Beta.BetaMessageParam[], canEdit: boolean, extraTools: ReturnType<typeof chatTools> = []) {
-  return client.beta.messages.toolRunner({
-    model: config.replyModel,
+async function callModel(model: string, messages: Anthropic.Beta.BetaMessageParam[], toolset: AnyTool[]) {
+  const runner = client.beta.messages.toolRunner({
+    model,
     max_tokens: 16000,
     thinking: { type: "adaptive" },
     output_config: { effort: config.replyEffort },
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system: [{ type: "text", text: replySystemPrompt(), cache_control: { type: "ephemeral" } }],
-    tools: canEdit ? [...tools, ...extraTools] : viewerTools,
+    tools: toolset,
     max_iterations: 12,
     messages,
   });
+  // Each iteration is a separate billed request: record them all.
+  let final: Anthropic.Beta.BetaMessage | undefined;
+  for await (const message of runner) {
+    recordUsage(model, message.usage);
+    final = message;
+  }
+  if (!final) throw new Error("model returned no message");
+  return final;
 }
 
 function textOf(message: Anthropic.Beta.BetaMessage): string {
@@ -275,28 +347,32 @@ function textOf(message: Anthropic.Beta.BetaMessage): string {
 const queues = new Map<string, Promise<unknown>>();
 
 export interface TurnOptions {
-  speaker?: Speaker;
+  speaker: Speaker;
   /** The tapback already put on this message (null = none). Omit when there's no tapback step. */
   tapback?: string | null;
   /** Group chat: Beast may stay quiet, messages are labelled by sender, roast mode applies. */
   group?: { senderName: string };
 }
 
+export { currentUser } from "./session.js";
+
 /** Resolves to the reply, or null when Beast chose to stay quiet in a group chat. */
-export function runAgent(conversationKey: string, channel: Channel, userText: string, opts: TurnOptions = {}): Promise<string | null> {
-  const prev = queues.get(conversationKey) ?? Promise.resolve();
+export function runAgent(conversationKey: string, channel: Channel, userText: string, opts: TurnOptions): Promise<string | null> {
+  const key = `${currentUserId()}:${conversationKey}`;
+  const prev = queues.get(key) ?? Promise.resolve();
   const next = prev.catch(() => {}).then(() => respond(conversationKey, channel, userText, opts));
-  queues.set(conversationKey, next);
+  queues.set(key, next);
   next
     .finally(() => {
-      if (queues.get(conversationKey) === next) queues.delete(conversationKey);
+      if (queues.get(key) === next) queues.delete(key);
     })
     .catch(() => {}); // the caller handles the error; this branch only cleans up
   return next;
 }
 
 async function respond(conversationKey: string, channel: Channel, userText: string, opts: TurnOptions): Promise<string | null> {
-  const speaker = opts.speaker ?? STUDENT;
+  const user = currentUser();
+  const { speaker } = opts;
   store.appendTurn(conversationKey, {
     role: "user",
     text: userText,
@@ -304,28 +380,39 @@ async function respond(conversationKey: string, channel: Channel, userText: stri
     ...(opts.group ? { from: opts.group.senderName } : {}),
   });
   const group = opts.group ? { roast: store.isRoastMode(conversationKey) } : undefined;
+  const ownChat = speaker.isUser && !group;
 
-  const final = await callModel(
-    buildMessages(conversationKey, contextNote(channel, speaker, opts.tapback, dashboardLinkLine(conversationKey, !speaker.canEdit || !!group), group)),
-    speaker.canEdit,
-    group ? chatTools(conversationKey) : [],
-  );
+  const toolset: AnyTool[] = speaker.isUser
+    ? [...tools, ...(ownChat ? [...memoryTools, ...trackedCourseTools] : []), ...(group ? chatTools(conversationKey) : [])]
+    : viewerTools;
+  const links = ownChat ? [dashboardLinkLine(user, conversationKey), calendarLine(user)].filter(Boolean).join("\n") : "";
+  const final = await callModel(user.model, buildMessages(conversationKey, contextNote(channel, speaker, user, opts.tapback, links, group)), toolset);
   if (final.stop_reason === "refusal") return group ? null : remember(conversationKey, "cant help with that one");
-  const text = cleanText(textOf(final));
+  let text = cleanText(textOf(final));
   // In a group chat Beast doesn't have to answer everything (friends talking to each other).
   if (group && (!text || /^skip\b/i.test(text))) return null;
+  // Private links (dashboard, calendar feed, connect pages) only ever go to the user's own chat.
+  if (group) text = text.replace(PRIVATE_LINK, "").replace(/[ \t]+\n/g, "\n").trim() || "🫡";
   // Remember when this chat actually got the current dashboard link, so Beast doesn't keep resending it.
-  const url = getDashboardUrl();
-  if (url && text.includes(url)) store.recordLinkSent(conversationKey, url);
+  const url = dashboardUrl(user);
+  if (ownChat && url && text.includes(url)) {
+    store.recordLinkSent(conversationKey, url);
+    track("dashboard_link_sent");
+  }
   return remember(conversationKey, text || "done ✅");
 }
 
-/**
- * "Dashboard link: https://… (current link sent: never | 2h ago)". Asher's own chats get the plain version;
- * guests and group chats get it labelled as Asher's view-only board, to share when it helps.
- */
-export function dashboardLinkLine(conversationKey: string, forGuests = false, now = new Date()): string {
-  const url = getDashboardUrl();
+/** The calendar feed link, and whether their calendar app has ever fetched it (= they subscribed). */
+function calendarLine(user: User): string {
+  const url = calendarUrl(user);
+  if (!url || !Object.keys(store.getCourseProfiles()).length) return "";
+  const subscribed = user.offeredAt.calendar_fetch ? "yes" : "no";
+  return `Calendar feed (classes, exams, key dates for their phone calendar): ${url.replace(/^https?:/, "webcal:")} (subscribed: ${subscribed})`;
+}
+
+/** "Dashboard link: https://… (current link sent: never | 2h ago)". Only in the user's own 1:1 chat. */
+export function dashboardLinkLine(user: User, conversationKey: string, now = new Date()): string {
+  const url = dashboardUrl(user);
   if (!url) return "Dashboard link: not available right now";
   const sent = store.getLinkSent(conversationKey);
   let when = "never";
@@ -333,9 +420,7 @@ export function dashboardLinkLine(conversationKey: string, forGuests = false, no
     const mins = Math.round((now.getTime() - Date.parse(sent.at)) / 60_000);
     when = mins < 60 ? `${mins} min ago` : mins < 48 * 60 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)} days ago`;
   }
-  return forGuests
-    ? `Dashboard link: ${url} (Asher's view-only board; current link sent in this chat: ${when})`
-    : `Dashboard link: ${url} (current link sent: ${when})`;
+  return `Dashboard link: ${url} (current link sent: ${when})`;
 }
 
 function remember(conversationKey: string, reply: string): string {
@@ -344,19 +429,20 @@ function remember(conversationKey: string, reply: string): string {
 }
 
 /**
- * Has the model write a proactive text (brief, nudge, check-in) for the student's chat.
+ * Has the model write a proactive text (brief, nudge, check-in) for the current user's own chat.
  * Returns the cleaned text, or null if the model decided to SKIP. Nothing is stored or sent here.
  */
 export async function writeProactive(conversationKey: string, instruction: string, { allowSkip = true } = {}): Promise<string | null> {
+  const user = currentUser();
   const messages = historyWindow(store.getConversation(conversationKey));
   // A mid-conversation system message has to follow a user turn, so mark the scheduled moment as one.
-  messages.push({ role: "user", content: "(scheduled: no new message from asher, this is a proactive text from beast)" });
+  messages.push({ role: "user", content: "(scheduled: no new message from your user, this is a proactive text from beast)" });
   const skipRule = allowSkip
-    ? "Reply with only the exact text to send. If there's nothing worth saying right now, or you know he's busy (gym, work, surfing), reply with just SKIP."
+    ? "Reply with only the exact text to send. If there's nothing worth saying right now, or you know they're busy, reply with just SKIP."
     : "Reply with only the exact text to send. This one always goes out, so don't reply SKIP.";
-  messages.push({ role: "system", content: contextNote("imessage", STUDENT, undefined, `${instruction}\n${skipRule}`) });
+  messages.push({ role: "system", content: contextNote("imessage", userSpeaker(user), user, undefined, `${instruction}\n${skipRule}`) });
 
-  const final = await callModel(messages, false); // proactive texts never change data
+  const final = await callModel(user.model, messages, []); // proactive texts never change data
   if (final.stop_reason === "refusal") return null;
   const text = cleanText(textOf(final));
   if (!text || (allowSkip && /^skip\b/i.test(text))) return null;
