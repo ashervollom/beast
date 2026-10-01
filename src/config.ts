@@ -7,16 +7,22 @@ function list(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+// On Railway the main app already has a public https domain, so there's no separate viewer or tunnel
+// (only one port is exposed and cloudflared isn't installed), whatever .env got copied over.
+const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT);
+const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : "";
+
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   // Read-only dashboard for sharing (e.g. through a tunnel). Localhost only; empty = off.
-  viewerPort: process.env.VIEWER_PORT === "" ? null : Number(process.env.VIEWER_PORT ?? 3001),
+  viewerPort: process.env.VIEWER_PORT === "" || onRailway ? null : Number(process.env.VIEWER_PORT ?? 3001),
   // Cloudflare quick tunnel to the read-only dashboard, so Beast can text Asher a link. "off" to disable.
   tunnel: {
-    enabled: (process.env.TUNNEL ?? "on").toLowerCase() !== "off",
+    enabled: !onRailway && (process.env.TUNNEL ?? "on").toLowerCase() !== "off",
     command: process.env.CLOUDFLARED_PATH || "cloudflared",
   },
-  publicUrl: process.env.PUBLIC_URL ?? "",
+  // Public base URL of this server. With no tunnel, it's also the dashboard link Beast texts.
+  publicUrl: (process.env.PUBLIC_URL || railwayUrl).replace(/\/$/, ""),
   timezone: process.env.TIMEZONE ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
   dataFile: process.env.DATA_FILE ?? "data/db.json",
 

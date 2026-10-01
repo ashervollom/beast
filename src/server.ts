@@ -56,7 +56,7 @@ const getCanvasStatus = (_req: Request, res: Response) => {
 };
 
 
-// Edits only from this computer: the owner app listens on every interface, so anyone on the same Wi-Fi could reach it.
+// Edits and test triggers only from this computer: the owner app listens on every interface (and is public on Railway).
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 function localOnly(req: Request, res: Response, next: NextFunction) {
   if (LOOPBACK.has(req.socket.remoteAddress ?? "")) return next();
@@ -88,6 +88,7 @@ app.get("/api/canvas/status", getCanvasStatus);
 // Manual trigger for testing: body {"what": "ics" | "planner" | "all"} (default all).
 app.post(
   "/api/canvas/sync",
+  localOnly,
   wrap(async (req, res) => {
     const what = String(req.body?.what ?? "all");
     if (!["ics", "planner", "all"].includes(what)) return void res.status(400).json({ error: "what must be ics, planner or all" });
@@ -108,6 +109,7 @@ app.post(
 // Preview what a proactive text would say, without sending it (for testing prompts).
 app.post(
   "/api/proactive/preview",
+  localOnly,
   wrap(async (req, res) => {
     const { writeProactive } = await import("./agent.js");
     const key = store.getSettings().studentChatId ? `imessage:${store.getSettings().studentChatId}` : WEB_KEY;
@@ -121,7 +123,7 @@ app.post(
   }),
 );
 // Run the scheduler once now (it also runs every minute).
-app.post("/api/proactive/tick", wrap(async (_req, res) => { await tick(); res.json({ ok: true, state: store.getProactive() }); }));
+app.post("/api/proactive/tick", localOnly, wrap(async (_req, res) => { await tick(); res.json({ ok: true, state: store.getProactive() }); }));
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);

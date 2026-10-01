@@ -15,8 +15,9 @@ let child: ChildProcess | null = null;
 let stopping = false;
 let delay = 5_000;
 
-/** The current public dashboard link, or null while the tunnel is down. */
+/** The current public dashboard link, or null while the tunnel is down. Without a tunnel, PUBLIC_URL (e.g. on Railway). */
 export function getDashboardUrl(): string | null {
+  if (!config.tunnel.enabled) return config.publicUrl || null;
   return url;
 }
 

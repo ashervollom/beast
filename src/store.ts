@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 
@@ -161,7 +162,23 @@ const empty = (): DB => ({
 
 let db: DB = load();
 
+/** First boot on a new host (e.g. Railway): SEED_DB_B64 (gzipped, base64 db.json) fills an empty data file once. */
+function seedIfMissing() {
+  const seed = process.env.SEED_DB_B64;
+  if (!seed || fs.existsSync(config.dataFile)) return;
+  try {
+    const json = zlib.gunzipSync(Buffer.from(seed, "base64")).toString("utf8");
+    JSON.parse(json);
+    fs.mkdirSync(path.dirname(config.dataFile), { recursive: true });
+    fs.writeFileSync(config.dataFile, json);
+    console.log(`[store] seeded ${config.dataFile} from SEED_DB_B64, you can delete that variable now`);
+  } catch (err) {
+    console.error("[store] SEED_DB_B64 is invalid, starting empty:", err instanceof Error ? err.message : err);
+  }
+}
+
 function load(): DB {
+  seedIfMissing();
   try {
     const data: DB = { ...empty(), ...JSON.parse(fs.readFileSync(config.dataFile, "utf8")) };
     data.canvas = { ...empty().canvas, ...data.canvas };
