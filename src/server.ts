@@ -56,8 +56,31 @@ const getCanvasStatus = (_req: Request, res: Response) => {
 };
 
 
+// Edits only from this computer: the owner app listens on every interface, so anyone on the same Wi-Fi could reach it.
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+function localOnly(req: Request, res: Response, next: NextFunction) {
+  if (LOOPBACK.has(req.socket.remoteAddress ?? "")) return next();
+  res.status(403).json({ error: "edits are only allowed from this computer" });
+}
+
+const EDITABLE = ["title", "course", "type", "dueAt", "priority", "status", "notes"] as const;
+const pickEditable = (body: Record<string, unknown> = {}) =>
+  Object.fromEntries(EDITABLE.filter((k) => k in body).map((k) => [k, body[k]])) as store.AssignmentPatch;
+
 // ---- assignments ----
 app.get("/api/assignments", getAssignments);
+app.post("/api/assignments", localOnly, (req, res) => {
+  const input = pickEditable(req.body);
+  if (typeof input.title !== "string" || !input.title.trim()) return void res.status(400).json({ error: "title is required" });
+  res.status(201).json(store.addAssignment({ ...input, title: input.title.trim() }));
+});
+app.patch("/api/assignments/:id", localOnly, (req, res) => {
+  const updated = store.updateAssignment(String(req.params.id), pickEditable(req.body));
+  updated ? res.json(updated) : res.status(404).json({ error: "not found" });
+});
+app.delete("/api/assignments/:id", localOnly, (req, res) => {
+  store.deleteAssignment(String(req.params.id)) ? res.json({ ok: true }) : res.status(404).json({ error: "not found" });
+});
 // ---- courses ----
 app.get("/api/courses", getCourses);
 // ---- canvas ----
