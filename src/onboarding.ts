@@ -1,5 +1,7 @@
 // Invite-only access and the first few texts with a new user. The copy here is placeholder: edit freely.
 import { config } from "./config.js";
+import { getSchool } from "./schoolDiscovery.js";
+import { learnSchool } from "./schoolLearning.js";
 import * as global from "./globalStore.js";
 import { extractName } from "./people.js";
 import { connectUrl, publicBase } from "./links.js";
@@ -119,6 +121,8 @@ export async function continueOnboarding(user: global.User, text: string): Promi
   const school = normalizeSchool(text);
   global.updateUser(user.id, { school, status: "active", onboardingStep: null, offeredAt: { ...user.offeredAt, canvas: new Date().toISOString() } });
   withUser(user.id, () => track("onboarding_finished"));
+  // A school Beast hasn't seen: research it in the background while onboarding finishes.
+  void learnSchool(school);
   return [WHAT_I_DO, canvasOffer(user.id)];
 }
 
@@ -131,4 +135,5 @@ export function normalizeSchool(text: string): string {
 export const isDefaultSchool = (u: global.User) => u.school === "UC Irvine";
 
 /** Canvas host to suggest on the connect page. */
-export const suggestedCanvasHost = (u: global.User) => (isDefaultSchool(u) ? config.defaultCanvasBaseUrl : "");
+export const suggestedCanvasHost = (u: global.User) =>
+  getSchool(u.school)?.canvasHost ?? (isDefaultSchool(u) ? config.defaultCanvasBaseUrl : "");

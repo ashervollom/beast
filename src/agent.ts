@@ -10,6 +10,7 @@ import { replySystemPrompt } from "./prompts.js";
 import { cleanText } from "./sanitize.js";
 import { calendarUrl, dashboardUrl, PRIVATE_LINK } from "./links.js";
 import { courseLines } from "./courseContext.js";
+import { schoolContextLine } from "./schoolDiscovery.js";
 import { courseTools } from "./courseTools.js";
 import { recordUsage, track } from "./metrics.js";
 import { currentUserId } from "./userContext.js";
@@ -252,6 +253,11 @@ const CHANNEL_LABEL: Record<Channel, string> = { imessage: "iMessage", web: "web
 
 function aboutUser(u: User): string {
   const lines = [`About your user: ${[u.name, u.school].filter(Boolean).join(", ") || "not much yet"}.`];
+  const school = schoolContextLine(u.school);
+  if (school) lines.push(school);
+  // Things that changed (Canvas moved a date, a new person joined) waiting for the next morning brief.
+  const held = store.getProactive().held;
+  if (held.length) lines.push(`Updates waiting for their morning brief (mention one only if it matters to what they asked): ${held.join("; ")}`);
   const memory = store.listMemory();
   lines.push(
     memory.length

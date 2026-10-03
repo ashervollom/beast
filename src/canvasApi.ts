@@ -14,6 +14,10 @@ export class CanvasApiError extends Error {
 
 const MAX_PAGES = 20;
 
+/** The last X-Rate-Limit-Remaining Canvas reported (null until a response has one), so sweeps can slow down. */
+let rateRemaining: number | null = null;
+export const canvasRateRemaining = () => rateRemaining;
+
 async function get(url: string, creds: CanvasCreds): Promise<Response> {
   const base = new URL(creds.baseUrl);
   // Only ever send the token back to the user's own Canvas host.
@@ -23,6 +27,8 @@ async function get(url: string, creds: CanvasCreds): Promise<Response> {
     headers: { Authorization: `Bearer ${creds.token}`, Accept: "application/json" },
     signal: AbortSignal.timeout(30_000),
   });
+  const remaining = Number(res.headers.get("x-rate-limit-remaining"));
+  if (Number.isFinite(remaining) && res.headers.has("x-rate-limit-remaining")) rateRemaining = remaining;
   const where = new URL(url).pathname;
   if (res.status === 429 || (res.status === 403 && /rate limit/i.test(await res.clone().text()))) {
     throw new CanvasRateLimitError(`rate limited on ${where}`);

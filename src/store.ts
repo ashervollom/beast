@@ -29,6 +29,8 @@ export interface Assignment {
   url: string | null;
   /** Found in a syllabus or course site, not confirmed by Canvas yet. */
   tentative?: boolean;
+  /** The user (or the owner) set this due date by hand, so syncs never overwrite it. */
+  dueAtEditedByUser?: boolean;
   /** Set on items the course scan created ("exam:<section>:<slug>"), so rescans update instead of duplicating. */
   scanKey?: string;
   // Canvas-owned fields, refreshed from the Canvas API. Never user-editable.
@@ -163,6 +165,17 @@ export interface CourseFacts {
   exams: { title: string; type: string; date: string | null; time: string | null; source: string; confidence: string }[];
   keyDates: { title: string; date: string; source: string }[];
   sectionInfo: string | null;
+  /** From the syllabus/site, for schools without a schedule adapter. */
+  meetings?: { kind: string; days: string; start: string; end: string; location: string }[];
+  finalExam?: { date: string; start: string | null; end: string | null; location: string | null } | null;
+}
+
+export interface CourseTerm {
+  name: string;
+  instructionStart: string; // YYYY-MM-DD
+  instructionEnd: string;
+  finalsStart: string;
+  finalsEnd: string;
 }
 
 export interface CourseProfile {
@@ -186,6 +199,12 @@ export interface CourseProfile {
   sources: string[];
   contentHash: string;
   lastScannedAt: string;
+  /** The term this course belongs to (from the school adapter, school discovery, or Canvas). */
+  term?: CourseTerm | null;
+  /** Where the logistics come from: the course website when it has the real schedule, otherwise Canvas. */
+  primarySource?: "website" | "canvas";
+  /** What the sweep read, and what it had to skip, so gaps are visible instead of silent. */
+  coverage?: { canvasCalls: number; sourcesRead: number; websitePages: number; files: number; skipped: string[] };
   /** Lab/discussion sections that fit; Beast asks once which one is theirs. */
   sectionChoice: { kind: string; options: { code: string; label: string }[]; askedAt: string | null } | null;
   /** Lab/discussion section codes the user picked. */
@@ -381,7 +400,8 @@ export function addAssignment(input: AssignmentInput & { title: string }): Assig
   return a;
 }
 
-export function updateAssignment(id: string, input: AssignmentPatch): Assignment | undefined {
+/** byUser: false for syncs (Canvas, the course scan); a date the user set themselves is never overwritten by those. */
+export function updateAssignment(id: string, input: AssignmentPatch, { byUser = true }: { byUser?: boolean } = {}): Assignment | undefined {
   const a = getAssignment(id);
   if (!a) return undefined;
   const {
@@ -398,6 +418,7 @@ export function updateAssignment(id: string, input: AssignmentPatch): Assignment
   if (patch.course) addCourse(patch.course);
   const wasDone = a.status === "done";
   Object.assign(a, patch, { updatedAt: now() });
+  if (byUser && "dueAt" in patch) a.dueAtEditedByUser = true;
   if (patch.course) a.course = findCourse(patch.course)?.name ?? patch.course;
   if (a.status === "done" && !wasDone) a.completedAt = now();
   if (a.status !== "done") a.completedAt = null;

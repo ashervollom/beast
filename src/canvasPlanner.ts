@@ -1,9 +1,11 @@
 // Enriches Canvas-imported assignments from the Canvas planner API (read-only):
-// points, missing flag, assignment link, and auto-complete when Canvas shows a submission.
+// points, missing flag, assignment link, auto-complete when Canvas shows a submission, and due dates
+// that Canvas moved (unless the user set that date themselves).
 // Runs for the current user (inside withUser).
 import { CanvasApiError, canvasGetAll, CanvasRateLimitError } from "./canvasApi.js";
 import { canvasCreds, markConnection } from "./connections.js";
 import { notifyCanvas } from "./proactive.js";
+import { formatLocal } from "./snapshot.js";
 import * as store from "./store.js";
 import { currentUserId } from "./userContext.js";
 
@@ -13,7 +15,7 @@ interface PlannerItem {
   plannable_type: string;
   plannable_id: number;
   html_url?: string;
-  plannable?: { assignment_id?: number; points_possible?: number | null; title?: string };
+  plannable?: { assignment_id?: number; points_possible?: number | null; title?: string; due_at?: string | null };
   submissions?: false | { submitted?: boolean; missing?: boolean };
 }
 
@@ -64,6 +66,7 @@ async function doSync(): Promise<PlannerSyncResult> {
     let matched = 0;
     let updated = 0;
     const markedDone: store.Assignment[] = [];
+    const moved: string[] = [];
     // Only existing assignments are touched; planner items without a match are ignored (no duplicates).
     for (const a of store.listAssignments({ status: "all" })) {
       const item = a.canvasAssignmentId !== null ? byAssignmentId.get(a.canvasAssignmentId) : undefined;
@@ -85,6 +88,12 @@ async function doSync(): Promise<PlannerSyncResult> {
         },
         { markDone: willMarkDone },
       );
+      // The professor moved the due date on Canvas: follow it, unless the user set this date by hand.
+      const canvasDue = item.plannable?.due_at ?? null;
+      if (canvasDue && a.dueAt && Math.abs(Date.parse(canvasDue) - Date.parse(a.dueAt)) > 60_000 && !a.dueAtEditedByUser) {
+        store.updateAssignment(a.id, { dueAt: canvasDue }, { byUser: false });
+        moved.push(`${a.title}${a.course ? ` (${a.course})` : ""} moved to ${formatLocal(canvasDue)}`);
+      }
       if (changed) updated++;
       if (willMarkDone) markedDone.push(a);
     }
@@ -93,6 +102,11 @@ async function doSync(): Promise<PlannerSyncResult> {
     markConnection("canvas", null);
     console.log(`[canvas-api] planner: ${items.length} items, ${matched} matched, ${updated} updated, ${markedDone.length} marked done`);
     if (markedDone.length) await notifyCanvas(submittedMessage(markedDone.map((a) => a.title)));
+    // Date changes ride along with the next brief or reply, never as their own text.
+    if (moved.length) {
+      store.holdNotice(`canvas moved due dates: ${moved.join("; ")}`);
+      console.log(`[canvas-api] ${moved.length} due date${moved.length > 1 ? "s" : ""} moved on Canvas`);
+    }
     return { items: items.length, matched, updated, markedDone: markedDone.map((a) => a.title) };
   } catch (err) {
     // Quiet by design: log one line, record it for the agent, never text or crash.

@@ -1,12 +1,19 @@
-// What Beast knows about a school's schedule of classes. Only UC Irvine has an adapter for now (the free
-// Anteater API); other schools get null and rely on Canvas alone until a generic adapter exists.
+// What Beast knows about a school's schedule of classes and term dates. UC Irvine has a hand-written adapter
+// (the free Anteater API). Every other school gets a generic adapter built from what school discovery
+// learned: term dates from the academic calendar, and course sections looked up on the school's public
+// schedule of classes with web search (cached). Schools Beast couldn't learn fall back to Canvas alone.
 import fs from "node:fs";
 import path from "node:path";
-import { config } from "./config.js";
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import * as z from "zod/v4";
+import { config, MODELS } from "./config.js";
+import { recordUsage } from "./metrics.js";
+import { getSchool, type SchoolProfile } from "./schoolDiscovery.js";
 
 export interface TermInfo {
   year: string;
-  quarter: string; // "Fall"
+  quarter: string; // "Fall" (or a full term name like "Fall 2026" for discovered schools)
   instructionStart: string; // YYYY-MM-DD
   instructionEnd: string;
   finalsStart: string;
@@ -47,6 +54,16 @@ export function parseSectionName(name: string): { dept: string; number: string; 
   const m = name.match(/^([A-Z][A-Z0-9&/ ]*?)\s+(\d+[A-Z]*)\s+([A-Z]{2,4})\s+([A-Z0-9]+)\b.*\((\d{5})\)\s*$/i);
   if (!m) return null;
   return { dept: m[1].toUpperCase(), number: m[2].toUpperCase(), type: m[3], num: m[4].toUpperCase(), code: m[5] };
+}
+
+/**
+ * Any school: a course code from a Canvas course or section name. "CS 101-001", "MATH 2B", "ECON-1A",
+ * "Stats 110/201 Fall 2026". Returns null when there's nothing that looks like a course code.
+ */
+export function parseCourseCode(text: string): { dept: string; number: string } | null {
+  const m = text.toUpperCase().match(/\b([A-Z]{2,8}(?:\s?&\s?[A-Z]{1,4})?)[\s-]?(\d{1,4}[A-Z]{0,2})\b/);
+  if (!m || /^(FALL|WINTER|SPRING|SUMMER|TERM|SEM|SECTION|SEC|LEC|DIS|LAB)$/.test(m[1])) return null;
+  return { dept: m[1].replace(/\s+/g, " "), number: m[2] };
 }
 
 // ---- UC Irvine: Anteater API (https://anteaterapi.com), no key needed ----
@@ -91,10 +108,6 @@ interface WebsocSection {
   isCancelled?: boolean;
 }
 
-/** The last term an adapter found, for synchronous callers (the snapshot). Set whenever currentTerm runs. */
-let knownTerm: TermInfo | null = null;
-export const lastKnownTerm = () => knownTerm;
-
 export const uci: ScheduleAdapter = {
   async currentTerm(now = new Date()) {
     const year = now.getFullYear();
@@ -112,7 +125,7 @@ export const uci: ScheduleAdapter = {
         const t = await cached(`uci-term-${c.year}-${c.quarter}`, 30 * DAY, () => anteater<TermInfo>(`/calendar?year=${c.year}&quarter=${c.quarter}`));
         const from = Date.parse(t.instructionStart) - 7 * DAY;
         const to = Date.parse(t.finalsEnd) + DAY;
-        if (now.getTime() >= from && now.getTime() <= to) return (knownTerm = t);
+        if (now.getTime() >= from && now.getTime() <= to) return t;
       } catch {
         // that quarter doesn't exist (e.g. summer sessions) or the API is down: try the next
       }
@@ -158,7 +171,85 @@ export const uci: ScheduleAdapter = {
   },
 };
 
-/** The adapter for a user's school, or null when Beast doesn't know that school's schedule system. */
+// ---- every other school: built from the discovered school profile ----
+
+const WebSectionsSchema = z.object({
+  title: z.string().nullable(),
+  sections: z.array(
+    z.object({
+      code: z.string().describe("Section id/number as the school writes it"),
+      type: z.string().describe('"Lec", "Dis", "Lab", "Sem"'),
+      num: z.string(),
+      instructors: z.array(z.string()),
+      meetings: z.array(z.object({ days: z.string().describe('Like "MWF" or "TuTh"'), start: z.string().describe("HH:MM 24h"), end: z.string(), location: z.string() })),
+      final: z.object({ date: z.string(), start: z.string(), end: z.string(), location: z.string() }).nullable(),
+    }),
+  ),
+});
+
+const termOf = (p: SchoolProfile): TermInfo | null =>
+  p.currentTerm
+    ? {
+        year: "",
+        quarter: p.currentTerm.name,
+        instructionStart: p.currentTerm.instructionStart,
+        instructionEnd: p.currentTerm.instructionEnd,
+        finalsStart: p.currentTerm.finalsStart ?? p.currentTerm.instructionEnd,
+        finalsEnd: p.currentTerm.finalsEnd ?? p.currentTerm.instructionEnd,
+      }
+    : null;
+
+function webAdapter(p: SchoolProfile): ScheduleAdapter {
+  const client = new Anthropic();
+  return {
+    async currentTerm() {
+      return termOf(p);
+    },
+    async course(term, dept, number) {
+      const soc = p.scheduleOfClasses;
+      if (!soc) return null;
+      const key = `web-${p.id}-${term.quarter}-${dept}-${number}`.replace(/[^\w-]/g, "_");
+      return cached(key, 7 * DAY, async () => {
+        const domains = p.domain ? [p.domain] : undefined;
+        const res = await client.beta.messages.create({
+          model: MODELS.extract,
+          max_tokens: 6000,
+          output_config: { effort: "low" },
+          tools: [
+            { type: "web_fetch_20260209", name: "web_fetch", max_uses: 5, ...(domains ? { allowed_domains: domains } : {}) },
+            { type: "web_search_20260209", name: "web_search", max_uses: 3, ...(domains ? { allowed_domains: domains } : {}) },
+          ],
+          messages: [
+            {
+              role: "user",
+              content:
+                `Look up ${dept} ${number} for ${term.quarter} at ${p.name} on the public schedule of classes (${soc.url}; ` +
+                `${soc.howToLookUp}). List every section: type, number, id, instructors, meeting days/times/rooms, and the final ` +
+                "exam if listed. Only what the page says.",
+            },
+          ],
+        });
+        recordUsage(MODELS.extract, res.usage);
+        const notes = res.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("\n");
+        if (!notes.trim()) return null;
+        const parsed = await client.messages.parse({
+          model: MODELS.extract,
+          max_tokens: 4000,
+          output_config: { format: zodOutputFormat(WebSectionsSchema) },
+          messages: [{ role: "user", content: `Course ${dept} ${number}. Turn these notes into the schema; empty sections if none were found.\n\n${notes.slice(0, 40_000)}` }],
+        });
+        recordUsage(MODELS.extract, parsed.usage);
+        const out = parsed.parsed_output;
+        if (!out || !out.sections.length) return null;
+        return { dept, number, title: out.title ?? "", sections: out.sections.map((x) => ({ ...x, webUrl: "" })) };
+      });
+    },
+  };
+}
+
+/** The adapter for a user's school: UCI's own, a discovered school's generic one, or null (Canvas only). */
 export function adapterFor(school: string | null): ScheduleAdapter | null {
-  return school === "UC Irvine" ? uci : null;
+  if (school === "UC Irvine") return uci;
+  const profile = getSchool(school);
+  return profile && (profile.currentTerm || profile.scheduleOfClasses) ? webAdapter(profile) : null;
 }

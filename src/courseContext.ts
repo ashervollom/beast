@@ -1,7 +1,6 @@
 // Course lines for the per-message snapshot: week of the term, today's classes, key dates coming up,
 // and lab/discussion sections Beast still needs to ask about (once).
 import { config } from "./config.js";
-import { lastKnownTerm } from "./schools.js";
 import * as store from "./store.js";
 
 const DAY = 864e5;
@@ -37,13 +36,14 @@ export function courseLines(ownChat: boolean, now = new Date()): string[] {
   const profiles = Object.values(store.getCourseProfiles());
   if (!profiles.length) return [];
   const lines: string[] = [];
-  const term = lastKnownTerm();
+  // The term most of their classes are in (each course profile carries its own).
+  const term = profiles.find((p) => p.term)?.term ?? null;
   const today = localParts(now);
 
   if (term) {
     const week = weekOfTerm(term.instructionStart, now);
     const inFinals = today.date >= term.finalsStart && today.date <= term.finalsEnd;
-    lines.push(`Term: ${term.quarter} ${term.year}, ${inFinals ? "finals week" : today.date < term.instructionStart ? "starts " + term.instructionStart : `week ${week}`} (instruction ends ${term.instructionEnd}).`);
+    lines.push(`Term: ${term.name}, ${inFinals ? "finals week" : today.date < term.instructionStart ? "starts " + term.instructionStart : `week ${week}`} (instruction ends ${term.instructionEnd}).`);
   }
 
   const inSession = !term || (today.date >= term.instructionStart && today.date <= term.instructionEnd);

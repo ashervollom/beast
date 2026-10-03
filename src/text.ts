@@ -6,6 +6,8 @@ const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"'
 export function htmlToText(html: string): string {
   return html
     .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
+    // Tables keep their shape (schedules and quiz dates usually live in tables): cells " | ", rows on lines.
+    .replace(/<\/t[dh]>/gi, " | ")
     .replace(/<br\s*\/?>|<\/(p|div|li|tr|h[1-6]|section|article)>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&(#?\w+);/g, (m, e: string) => ENTITIES[e.toLowerCase()] ?? (e.startsWith("#") ? String.fromCharCode(Number(e.slice(1))) : m))

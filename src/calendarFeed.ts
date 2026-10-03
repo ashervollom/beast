@@ -1,7 +1,6 @@
 // A user's private calendar feed (/cal/<slug>.ics): weekly class meetings for the term, exams and quizzes
 // from the board, and key dates from syllabi. Subscribing on an iPhone is one tap; Beast keeps it current.
 import { config } from "./config.js";
-import { lastKnownTerm } from "./schools.js";
 import * as store from "./store.js";
 
 const BYDAY: Record<string, string> = { M: "MO", Tu: "TU", W: "WE", Th: "TH", F: "FR", Sa: "SA", Su: "SU" };
@@ -39,11 +38,11 @@ export function buildCalendar(userName: string | null): string {
   const tz = config.timezone;
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
   const events: string[][] = [];
-  const term = lastKnownTerm();
 
   for (const p of Object.values(store.getCourseProfiles())) {
     const name = p.dept && p.number ? `${p.dept} ${p.number}` : p.course;
-    // Weekly meetings for the term.
+    // Weekly meetings for the term this course is in.
+    const term = p.term ?? null;
     if (term) {
       for (const m of p.meetings) {
         const days = (m.days.match(/Su|Sa|Tu|Th|M|W|F/g) ?? []).map((d) => BYDAY[d]);
