@@ -100,27 +100,29 @@
       padding: 6px 0;
     }
     .field input::placeholder { color: var(--muted); }
+    /* Submit: the faceless Beast head and an arrow. Once you're on the list, the arrow goes and Beast gets his eyes. */
     .go {
       flex: none;
-      width: 38px;
       height: 38px;
-      border-radius: 50%;
+      padding: 0 12px 0 9px;
+      border-radius: 99px;
       border: 0;
       background: var(--ink);
       color: var(--paper);
-      display: grid;
-      place-items: center;
+      display: flex;
+      align-items: center;
+      gap: 3px;
       cursor: pointer;
-      transition: background 300ms, transform 120ms;
+      transition: transform 120ms;
     }
     .go:active { transform: scale(0.94); }
-    .go svg { width: 18px; height: 18px; }
-    .go .check { display: none; }
-    .done .go { background: var(--ok); cursor: default; }
+    .go .head { width: 24px; height: 24px; }
+    .go .head path { fill: none; stroke: currentColor; stroke-width: 11; stroke-linecap: round; stroke-linejoin: round; }
+    .go .head .eye { fill: currentColor; display: none; }
+    .go .arrow { width: 16px; height: 16px; }
+    .done .go { cursor: default; padding: 0 9px; }
     .done .go .arrow { display: none; }
-    .done .go .check { display: block; }
-    .done .go .check path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: tick 380ms 120ms ease-out forwards; }
-    @keyframes tick { to { stroke-dashoffset: 0; } }
+    .done .go .head .eye { display: inline; }
     .busy .go { opacity: 0.6; }
     .note { min-height: 22px; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
     .note.error { color: var(--danger); }
@@ -175,8 +177,17 @@
           <div class="field">
             <input id="contact" name="contact" type="text" inputmode="email" autocomplete="email" placeholder="Your email or phone number" aria-label="Email or phone number" />
             <button class="go" id="go" type="submit" aria-label="Join the waitlist">
-              <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-              <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+              <!-- the Beast logo head (brand/beast-logo.svg); the eyes show once you've joined -->
+              <svg class="head" viewBox="32 42 138 138" aria-hidden="true">
+                <g transform="rotate(-3 100 100)">
+                  <path d="M40 112 C38 70 70 48 102 50 C140 51 164 78 162 114 C160 150 134 174 98 172 C64 171 41 146 40 112" />
+                  <path d="M53.8 75.8 C46.8 68.2 46.8 58.8 52.2 50.2 C55.2 57.8 60.8 61.8 67.2 63.2" />
+                  <path d="M148.2 75.8 C155.2 68.2 155.2 58.8 149.8 50.2 C146.8 57.8 141.2 61.8 134.8 63.2" />
+                  <ellipse class="eye" cx="81" cy="110" rx="9" ry="13" />
+                  <ellipse class="eye" cx="122" cy="108" rx="9" ry="13" />
+                </g>
+              </svg>
+              <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </button>
           </div>
           <p class="note" id="note" role="status" aria-live="polite"></p>
@@ -218,6 +229,7 @@
       form.classList.remove("busy");
       if (res?.ok) {
         form.classList.add("done");
+        document.getElementById("go").setAttribute("aria-label", "You're on the waitlist");
         input.readOnly = true;
         ctaText.textContent = "You're on the list.";
         note.textContent = "We'll reach out when there's a spot for you.";
