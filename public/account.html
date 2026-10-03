@@ -11,6 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/board.css" />
   <style>
     .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; max-width: 1180px; margin: 0 auto; padding: 44px 32px 96px; }
     nav { position: sticky; top: 44px; align-self: start; }
@@ -20,10 +21,6 @@
     nav a:hover, nav button:hover { color: var(--ink); }
     nav a.on { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
     .who { margin-top: 28px; color: var(--muted); font-size: 14px; line-height: 1.6; }
-    section { margin-bottom: 68px; }
-    h2 { font: 400 clamp(26px, 3vw, 30px)/1.15 var(--serif); letter-spacing: -0.015em; margin: 0 0 6px; }
-    .desc { color: var(--muted); margin: 0 0 20px; font-size: 15px; }
-    .rule { border-top: 1px solid var(--rule-strong); }
     .row { display: flex; align-items: center; gap: 18px; padding: 20px 4px; border-bottom: 1px solid var(--rule); }
     .row:last-child { border-bottom: 0; }
     .row .icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--paper-2); font: 500 17px/1 var(--serif); color: var(--ink-2); }
@@ -62,7 +59,6 @@
     .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
     .note { font-size: 14px; color: var(--muted); min-height: 20px; margin: 8px 0 0; }
     .note.error { color: var(--danger); }
-    .empty { color: var(--muted); padding: 20px 4px; }
     details.cls { border-bottom: 1px solid var(--rule); }
     details.cls summary { list-style: none; cursor: pointer; display: flex; gap: 18px; align-items: baseline; padding: 20px 4px; }
     details.cls summary::-webkit-details-marker { display: none; }
@@ -75,12 +71,6 @@
     .chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .chips a { font-size: 14px; padding: 6px 12px; border: 1px solid var(--rule); border-radius: 99px; text-decoration: none; }
     .chips a:hover { border-color: var(--ink-2); }
-    .item { display: flex; gap: 16px; align-items: baseline; padding: 14px 4px; border-bottom: 1px solid var(--rule); }
-    .item .when { flex: none; width: 150px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
-    .item .when.soon { color: var(--danger); }
-    .item .what { flex: 1; min-width: 0; }
-    .item .course { color: var(--muted); font-size: 14px; }
-    .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--rule); border-radius: 99px; padding: 1px 8px; margin-left: 6px; }
     dialog { border: 0; border-radius: 18px; padding: 0; width: min(560px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 30px 80px rgba(0,0,0,.25); }
     dialog::backdrop { background: rgba(25, 25, 23, 0.35); }
     .dlg { padding: 36px 36px 24px; position: relative; }
@@ -108,7 +98,6 @@
       .row .end { margin-left: auto; }
       .row:has(.icon) .end { width: 100%; justify-content: flex-start; padding-left: 58px; }
       .times input { width: 140px; padding: 12px 8px; }
-      .item .when { width: 110px; }
       .dlg { padding: 30px 20px 20px; }
     }
   </style>
@@ -149,6 +138,7 @@
   </dialog>
 
   <script type="module">
+    import { boardHtml } from "/board.js";
     const main = document.getElementById("main");
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     let me = null;
@@ -174,11 +164,6 @@
       const old = btn.textContent;
       btn.textContent = "Copied";
       setTimeout(() => (btn.textContent = old), 1200);
-    };
-    const fmtDue = (iso) => {
-      const d = new Date(iso);
-      const day = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }).replace(",", "");
-      return `${day} · ${to12(`${d.getHours()}:${d.getMinutes()}`)}`;
     };
     const to12 = (hhmm) => {
       if (!hhmm) return "";
@@ -269,36 +254,7 @@
     async function board(live) {
       const { assignments } = await api("/board");
       if (!live()) return;
-      const now = Date.now();
-      const isExam = (a) => a.type === "exam" || a.type === "quiz";
-      const open = assignments.filter((a) => a.status !== "done");
-      const exams = open.filter((a) => isExam(a) && (!a.dueAt || Date.parse(a.dueAt) > now - 864e5));
-      const upNext = open.filter((a) => !isExam(a)).sort((a, b) => (a.dueAt ?? "9").localeCompare(b.dueAt ?? "9"));
-      const weekAgo = now - 7 * 864e5;
-      const done = assignments.filter((a) => a.status === "done" && a.completedAt && Date.parse(a.completedAt) > weekAgo);
-      const item = (a, showDue = true) => {
-        const soon = a.dueAt && Date.parse(a.dueAt) - now < 2 * 864e5;
-        const link = a.canvasHtmlUrl || a.url;
-        return `<div class="item"><div class="when ${a.status !== "done" && soon ? "soon" : ""}">${showDue ? (a.dueAt ? esc(fmtDue(a.dueAt)) : "No date") : "Done"}</div>
-          <div class="what">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}${a.tentative ? `<span class="tag">tentative</span>` : ""}${a.status === "in_progress" ? `<span class="tag">in progress</span>` : ""}
-          ${a.course ? `<div class="course">${esc(a.course)}</div>` : ""}</div></div>`;
-      };
-      main.innerHTML = `
-        <section>
-          <h2>Up next</h2>
-          <p class="desc">${upNext.length ? `${upNext.length} open` : "Nothing open. Enjoy it."}</p>
-          <div class="rule">${upNext.slice(0, 40).map((a) => item(a)).join("") || `<div class="empty">You're clear.</div>`}</div>
-        </section>
-        <section>
-          <h2>Exams &amp; quizzes</h2>
-          <p class="desc">From Canvas, your syllabi and the schedule of classes. Tentative ones aren't on Canvas yet.</p>
-          <div class="rule">${exams.map((a) => item(a)).join("") || `<div class="empty">None coming up.</div>`}</div>
-        </section>
-        <section>
-          <h2>Done this week</h2>
-          <p class="desc">${done.length ? `${done.length} finished` : "Nothing yet this week."}</p>
-          <div class="rule">${done.map((a) => item(a, false)).join("") || ""}</div>
-        </section>`;
+      main.innerHTML = boardHtml(assignments);
     }
 
     // ---- Classes ----

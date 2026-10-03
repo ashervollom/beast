@@ -1,0 +1,15 @@
+/* Sections and board rows, shared by the account page and the private board link. */
+section { margin-bottom: 68px; }
+h2 { font: 400 clamp(26px, 3vw, 30px)/1.15 var(--serif); letter-spacing: -0.015em; margin: 0 0 6px; }
+.desc { color: var(--muted); margin: 0 0 20px; font-size: 15px; }
+.rule { border-top: 1px solid var(--rule-strong); }
+.empty { color: var(--muted); padding: 20px 4px; }
+.item { display: flex; gap: 16px; align-items: baseline; padding: 14px 4px; border-bottom: 1px solid var(--rule); }
+.item .when { flex: none; width: 168px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.item .when.soon { color: var(--danger); }
+.item .what { flex: 1; min-width: 0; }
+.item .course { color: var(--muted); font-size: 14px; }
+.tag { font-size: 12px; color: var(--muted); border: 1px solid var(--rule); border-radius: 99px; padding: 1px 8px; margin-left: 6px; }
+@media (max-width: 820px) {
+  .item .when { width: 110px; }
+}
