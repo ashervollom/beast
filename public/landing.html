@@ -119,25 +119,17 @@
     .go .face, .go .eye { transform-box: fill-box; transform-origin: center; }
     .go .eye { fill: currentColor; transform: scaleY(0); }
     .done .go { cursor: default; }
-    /* Coming alive: the arrow shrinks away, Beast hops and tilts, his eyes pop open, then one blink. */
+    /* Coming alive: the arrow shrinks away, his eyes slowly pop open, then one blink. */
     .done .go .face { opacity: 0; animation: arrow-out 200ms ease-in; }
-    .done .go .eye { transform: scaleY(1); animation: eyes-open 900ms 160ms cubic-bezier(.3,1.5,.5,1) both; }
-    .done .go svg { transform-origin: 50% 90%; animation: wake 700ms 120ms ease-out both; }
+    .done .go .eye { transform: scaleY(1); animation: eyes-open 2200ms 200ms ease-in-out both; }
     @keyframes arrow-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.2); } }
     @keyframes eyes-open {
       0% { transform: scaleY(0); }
-      30% { transform: scaleY(1.25); }
-      42% { transform: scaleY(1); }
-      78% { transform: scaleY(1); }
-      86% { transform: scaleY(0.1); }
+      45% { transform: scaleY(1.15); }
+      62% { transform: scaleY(1); }
+      86% { transform: scaleY(1); }
+      92% { transform: scaleY(0.1); }
       100% { transform: scaleY(1); }
-    }
-    @keyframes wake {
-      0% { transform: none; }
-      30% { transform: translateY(-4px) rotate(-8deg) scale(1.06); }
-      55% { transform: translateY(0) rotate(5deg); }
-      75% { transform: rotate(-2deg); }
-      100% { transform: none; }
     }
     .busy .go { opacity: 0.6; }
     .note { min-height: 22px; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
