@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="noindex" />
+  <meta name="referrer" content="no-referrer" />
+  <title>beast admin</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #171717;
+      --line: #262626;
+      --text: #ededeb;
+      --muted: #8a8a86;
+      --accent: #ededeb;
+      --ok: #4dab9a;
+      --warn: #d9a24c;
+      --danger: #ff7369;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 80px; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+    h1 span { color: var(--muted); font-weight: 500; }
+    h2 { font-size: 15px; margin: 36px 0 10px; display: flex; align-items: center; gap: 10px; }
+    h2 small { color: var(--muted); font-weight: 400; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+    .tile b { display: block; font-size: 22px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .tile span { color: var(--muted); font-size: 12px; }
+    .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; background: var(--surface); position: sticky; top: 0; }
+    tr:last-child td { border-bottom: 0; }
+    td.num { font-variant-numeric: tabular-nums; }
+    .empty { color: var(--muted); padding: 14px 12px; }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; background: var(--line); color: var(--muted); }
+    .pill.ok { background: rgba(77, 171, 154, 0.15); color: var(--ok); }
+    .pill.warn { background: rgba(217, 162, 76, 0.15); color: var(--warn); }
+    .pill.bad { background: rgba(255, 115, 105, 0.15); color: var(--danger); }
+    button, .btn {
+      font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid var(--line);
+      border-radius: 8px; padding: 4px 10px; cursor: pointer; text-decoration: none; display: inline-block;
+    }
+    button:hover, .btn:hover { border-color: #444; }
+    button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+    button.danger { color: var(--danger); }
+    button[disabled] { opacity: 0.5; cursor: default; }
+    .actions { display: flex; gap: 6px; }
+    .bars { display: grid; gap: 4px; }
+    .bar { display: grid; grid-template-columns: 90px 1fr 70px; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
+    .bar i { display: block; height: 8px; border-radius: 4px; background: var(--ok); min-width: 2px; }
+    .bar b { color: var(--text); font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+    .feedback { display: grid; gap: 8px; }
+    .feedback div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+    .feedback small { color: var(--muted); display: block; margin-top: 4px; }
+    .signin { max-width: 360px; margin: 18vh auto 0; }
+    .signin input { width: 100%; padding: 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; margin: 14px 0 10px; }
+    .signin button { width: 100%; padding: 12px; font-size: 14px; }
+    .msg { color: var(--muted); min-height: 20px; margin-top: 10px; }
+    .msg.error { color: var(--danger); }
+    dialog { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 14px; max-width: 520px; width: calc(100% - 32px); padding: 20px; }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog textarea { width: 100%; min-height: 130px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; font: inherit; resize: vertical; }
+    dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+    .banner { background: rgba(217, 162, 76, 0.12); color: var(--warn); border: 1px solid rgba(217, 162, 76, 0.3); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 18px; }
+  </style>
+</head>
+<body>
+  <main id="app"></main>
+
+  <dialog id="dlg">
+    <h2 id="dlg-title" style="margin-top:0">Invite link</h2>
+    <p id="dlg-sub" class="msg"></p>
+    <textarea id="dlg-text" readonly></textarea>
+    <div class="row">
+      <button id="dlg-copy" class="primary">Copy message</button>
+      <button id="dlg-copy-link">Copy link</button>
+      <button id="dlg-close">Close</button>
+    </div>
+  </dialog>
+
+  <script type="module">
+    const app = document.getElementById("app");
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const money = (n) => (n == null ? "–" : n < 0.01 && n > 0 ? "<$0.01" : `$${n.toFixed(2)}`);
+    const when = (iso) => {
+      if (!iso) return "–";
+      const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+      if (mins < 0) return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      if (mins < 60) return `${Math.max(1, mins)}m ago`;
+      if (mins < 2880) return `${Math.round(mins / 60)}h ago`;
+      return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    };
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`/api/admin${path}`, {
+        credentials: "same-origin",
+        ...opts,
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      if (res.status === 401) throw Object.assign(new Error("signed out"), { signedOut: true });
+      const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+      return body;
+    }
+
+    // ---- sign in ----
+    function signIn() {
+      app.innerHTML = `
+        <form class="signin" id="f">
+          <h1>beast <span>admin</span></h1>
+          <input id="token" type="password" placeholder="Admin token" autocomplete="current-password" aria-label="Admin token" required />
+          <button class="primary">Sign in</button>
+          <p class="msg" id="msg"></p>
+        </form>`;
+      document.getElementById("f").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const msg = document.getElementById("msg");
+        msg.className = "msg";
+        msg.textContent = "Checking…";
+        const res = await fetch("/api/admin/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: document.getElementById("token").value }) }).catch(() => null);
+        if (res?.ok) return load();
+        const body = res ? await res.json().catch(() => ({})) : {};
+        msg.className = "msg error";
+        msg.textContent = body.error || "Couldn't reach Beast.";
+      });
+    }
+
+    // ---- dialog for invite links ----
+    const dlg = document.getElementById("dlg");
+    let dlgLink = "";
+    function showInvite(title, sub, message, link) {
+      dlgLink = link || "";
+      document.getElementById("dlg-title").textContent = title;
+      document.getElementById("dlg-sub").textContent = sub;
+      document.getElementById("dlg-text").value = message || link || "";
+      dlg.showModal();
+    }
+    const copy = async (text, btn) => {
+      await navigator.clipboard.writeText(text).catch(() => {});
+      const old = btn.textContent;
+      btn.textContent = "Copied ✓";
+      setTimeout(() => (btn.textContent = old), 1200);
+    };
+    document.getElementById("dlg-copy").onclick = (e) => copy(document.getElementById("dlg-text").value, e.target);
+    document.getElementById("dlg-copy-link").onclick = (e) => copy(dlgLink, e.target);
+    document.getElementById("dlg-close").onclick = () => dlg.close();
+
+    // ---- the page ----
+    async function load() {
+      let data;
+      try {
+        const [overview, users, waitlist, invites, usage, feedback, schools] = await Promise.all(
+          ["/overview", "/users", "/waitlist", "/invites", "/usage", "/feedback", "/schools"].map((p) => api(p)),
+        );
+        data = { overview, users, waitlist, invites, usage, feedback, schools };
+      } catch (err) {
+        if (err.signedOut) return signIn();
+        app.innerHTML = `<p class="msg error">${esc(err.message)}</p>`;
+        return;
+      }
+      render(data);
+    }
+
+    function render({ overview: o, users, waitlist, invites, usage, feedback, schools }) {
+      const maxDay = Math.max(0.01, ...usage.daily.map((d) => d.cost));
+      app.innerHTML = `
+        <header>
+          <h1>beast <span>admin</span></h1>
+          <div class="actions"><button id="new-invite" class="primary">New invite</button><button id="refresh">Refresh</button><button id="logout">Sign out</button></div>
+        </header>
+        ${o.dryRun ? `<div class="banner">Dry run is on: Beast logs texts instead of sending them.</div>` : ""}
+
+        <div class="tiles">
+          <div class="tile"><b>${o.active7d} / ${o.users}</b><span>users active 7d / total</span></div>
+          <div class="tile"><b>${money(o.spend.today)}</b><span>spend today</span></div>
+          <div class="tile"><b>${money(o.spend.week)}</b><span>spend 7 days</span></div>
+          <div class="tile"><b>${money(o.spend.month)}</b><span>spend 30 days</span></div>
+          <div class="tile"><b>${o.messages7d}</b><span>messages 7d · ${money(o.costPerMessage)} all spend ÷ msgs</span></div>
+          <div class="tile"><b>${money(o.costPerUser7d)}</b><span>per user, 7 days</span></div>
+          <div class="tile"><b>${o.waitlist}</b><span>waiting on the list</span></div>
+          <div class="tile"><b>${o.contacts.used ?? "?"} / ${o.contacts.limit}</b><span>Linq contacts used</span></div>
+          <div class="tile"><b>${o.invitesOpen}</b><span>open invites</span></div>
+        </div>
+
+        <h2>Waitlist <small>${waitlist.length} total</small> <a class="btn" href="/api/admin/waitlist.csv">Export CSV</a></h2>
+        <div class="wrap"><table>
+          <tr><th>Contact</th><th>Kind</th><th>Joined list</th><th>Status</th><th></th></tr>
+          ${waitlist.length ? waitlist.slice().reverse().map((w) => `
+            <tr><td>${esc(w.contact)}</td><td>${esc(w.kind)}</td><td>${when(w.createdAt)}</td>
+            <td><span class="pill ${w.status === "joined" ? "ok" : w.status === "invited" ? "warn" : ""}">${esc(w.status)}</span></td>
+            <td>${w.status === "joined" ? "" : `<button data-invite="${esc(w.contact)}">${w.status === "invited" ? "New invite" : "Invite"}</button>`}</td></tr>`).join("") : `<tr><td colspan="5" class="empty">Nobody yet.</td></tr>`}
+        </table></div>
+
+        <h2>Users <small>${users.length}</small></h2>
+        <div class="wrap"><table>
+          <tr><th>Name</th><th>Phone</th><th>School</th><th>Status</th><th>Canvas</th><th>Classes</th><th>Last active</th><th>Msgs 7d</th><th>Cost 7d</th><th>Model</th><th>Invites</th><th></th></tr>
+          ${users.map((u) => `
+            <tr><td>${esc(u.name ?? "?")}${u.role === "owner" ? ` <span class="pill">owner</span>` : ""}${u.invitedBy ? `<br><small style="color:var(--muted)">via ${esc(u.invitedBy)}</small>` : ""}</td>
+            <td>…${esc(u.handleLast4)}</td><td>${esc(u.school ?? "–")}</td>
+            <td><span class="pill ${u.status === "active" ? "ok" : u.status === "paused" ? "bad" : "warn"}">${esc(u.status)}</span></td>
+            <td>${u.connections.length ? `<span class="pill ok">connected</span>` : "–"}</td>
+            <td class="num">${u.courses}</td><td>${when(u.lastActiveAt)}</td><td class="num">${u.messages7d}</td><td class="num">${money(u.cost7d)}</td>
+            <td><button data-model="${u.id}" data-to="${u.model === "opus" ? "sonnet" : "opus"}" title="Switch model">${esc(u.model)}</button></td>
+            <td class="num">${u.role === "owner" ? "∞" : u.invitesLeft} ${u.role === "owner" ? "" : `<button data-grant="${u.id}" title="Give one more invite">+1</button>`}</td>
+            <td class="actions">${u.role === "owner" ? "" : `
+              <button data-${u.status === "paused" ? "unpause" : "pause"}="${u.id}">${u.status === "paused" ? "Unpause" : "Pause"}</button>
+              <button class="danger" data-delete="${u.id}" data-name="${esc(u.name ?? "this user")}">Delete</button>`}</td></tr>`).join("")}
+        </table></div>
+
+        <h2>Invites <small>${invites.length}</small></h2>
+        <div class="wrap"><table>
+          <tr><th>Made by</th><th>Note</th><th>Made</th><th>Expires</th><th>Status</th><th></th></tr>
+          ${invites.length ? invites.map((i) => `
+            <tr><td>${esc(i.createdBy)}</td><td>${esc(i.note || "–")}</td><td>${when(i.createdAt)}</td><td>${i.expiresAt ? new Date(i.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "–"}</td>
+            <td><span class="pill ${i.status === "used" ? "ok" : i.status === "open" ? "warn" : ""}">${esc(i.status)}${i.usedBy ? ` · ${esc(i.usedBy)}` : ""}</span></td>
+            <td class="actions">${i.status === "open" ? `<button data-copylink="${esc(i.url ?? "")}">Copy link</button><button class="danger" data-revoke="${esc(i.code)}">Revoke</button>` : ""}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">No invites yet.</td></tr>`}
+        </table></div>
+
+        <h2>Usage <small>last 7 days</small></h2>
+        <div class="wrap"><table>
+          <tr><th>Feature</th><th>Uses</th><th>Users</th></tr>
+          ${usage.features.length ? usage.features.map((f) => `<tr><td>${esc(f.name)}</td><td class="num">${f.uses}</td><td class="num">${f.users}</td></tr>`).join("") : `<tr><td colspan="3" class="empty">No usage yet.</td></tr>`}
+        </table></div>
+        ${usage.unused.length ? `<p class="msg">Nobody used: ${usage.unused.map(esc).join(", ")}</p>` : ""}
+
+        <h2>Spend per day <small>last 14 days</small></h2>
+        <div class="bars">${usage.daily.length ? usage.daily.map((d) => `<div class="bar"><span>${esc(d.date.slice(5))}</span><i style="width:${Math.max(1, (d.cost / maxDay) * 100)}%"></i><b>${money(d.cost)}</b></div>`).join("") : `<p class="msg">No spend yet.</p>`}</div>
+
+        <h2>Feedback <small>${feedback.length}</small></h2>
+        <div class="feedback">${feedback.length ? feedback.slice(0, 50).map((f) => `<div>${esc(f.text)}<small>${esc(f.name)} · ${when(f.at)}${f.source === "week1" ? " · week-one question" : ""}</small></div>`).join("") : `<p class="msg">No feedback yet.</p>`}</div>
+
+        <h2>Schools <small>${schools.length}</small></h2>
+        <div class="wrap"><table>
+          <tr><th>School</th><th>How Beast knows it</th><th>Term</th><th>Schedule lookup</th><th>Users</th><th>Learned</th></tr>
+          ${schools.map((s) => `<tr><td>${esc(s.name)}</td><td>${s.origin === "builtin" ? "built in" : "researched"}</td><td>${esc(s.term ?? s.termSystem)}</td><td>${s.scheduleLookup ? `<span class="pill ok">yes</span>` : `<span class="pill">canvas only</span>`}</td><td class="num">${s.users}</td><td>${when(s.learnedAt)}</td></tr>`).join("")}
+        </table></div>`;
+      wire();
+    }
+
+    function wire() {
+      const act = async (btn, fn) => {
+        btn.disabled = true;
+        try {
+          await fn();
+          await load();
+        } catch (err) {
+          if (err.signedOut) return signIn();
+          alert(err.message);
+          btn.disabled = false;
+        }
+      };
+      document.getElementById("refresh").onclick = () => load();
+      document.getElementById("logout").onclick = async () => {
+        await fetch("/api/admin/logout", { method: "POST", headers: { "Content-Type": "application/json" } });
+        signIn();
+      };
+      document.getElementById("new-invite").onclick = async (e) => {
+        const note = prompt("Who's it for? (a note just for you, optional)") ?? "";
+        e.target.disabled = true;
+        try {
+          const inv = await api("/invites", { method: "POST", body: { note } });
+          showInvite("Invite link", "Works once, for 2 weeks. Send it however you like.", inv.message, inv.url);
+          await load();
+        } catch (err) {
+          if (err.signedOut) return signIn();
+          alert(err.message);
+        }
+      };
+      for (const b of app.querySelectorAll("[data-invite]")) {
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            const inv = await api("/waitlist/invite", { method: "POST", body: { contact: b.dataset.invite } });
+            showInvite(`Invite for ${b.dataset.invite}`, "Send this to them (email or text). The link works once, for 2 weeks.", inv.message, inv.url);
+            await load();
+          } catch (err) {
+            if (err.signedOut) return signIn();
+            alert(err.message);
+            b.disabled = false;
+          }
+        };
+      }
+      for (const b of app.querySelectorAll("[data-pause]")) b.onclick = () => act(b, () => api(`/users/${b.dataset.pause}/pause`, { method: "POST", body: {} }));
+      for (const b of app.querySelectorAll("[data-unpause]")) b.onclick = () => act(b, () => api(`/users/${b.dataset.unpause}/unpause`, { method: "POST", body: {} }));
+      for (const b of app.querySelectorAll("[data-grant]")) b.onclick = () => act(b, () => api(`/users/${b.dataset.grant}/grant-invite`, { method: "POST", body: {} }));
+      for (const b of app.querySelectorAll("[data-model]")) b.onclick = () => act(b, () => api(`/users/${b.dataset.model}/model`, { method: "POST", body: { model: b.dataset.to } }));
+      for (const b of app.querySelectorAll("[data-revoke]")) b.onclick = () => confirm("Revoke this invite? The link stops working.") && act(b, () => api(`/invites/${b.dataset.revoke}/revoke`, { method: "POST", body: {} }));
+      for (const b of app.querySelectorAll("[data-delete]"))
+        b.onclick = () => confirm(`Delete ${b.dataset.name}? This wipes everything Beast has on them, including backups. It can't be undone.`) && act(b, () => api(`/users/${b.dataset.delete}`, { method: "DELETE" }));
+      for (const b of app.querySelectorAll("[data-copylink]")) b.onclick = () => copy(b.dataset.copylink, b);
+    }
+
+    load();
+  </script>
+</body>
+</html>

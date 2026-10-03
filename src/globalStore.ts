@@ -254,6 +254,16 @@ export function redeemInvite(code: string, userId: string): boolean {
   return true;
 }
 
+/** Expires an open invite now (admin "revoke"); a user's spent invite comes back right away. */
+export function revokeInvite(code: string): boolean {
+  if (inviteState(code) !== "ok") return false;
+  const invite = getInvite(code)!;
+  invite.expiresAt = new Date(Date.now() - 1000).toISOString();
+  save();
+  refundExpiredInvites();
+  return true;
+}
+
 /** Gives an expired, unused invite back to whoever made it (owners have unlimited invites anyway). */
 export function refundExpiredInvites(): number {
   let refunded = 0;

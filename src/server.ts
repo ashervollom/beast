@@ -1,7 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import path from "node:path";
-import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
+import { endSession, hasSession, startSession, tokenMatches } from "./adminSession.js";
+import { mountAdminRoutes } from "./adminRoutes.js";
 import { linqWebhook, lastWebhookAt } from "./imessage.js";
 import { buildCalendar } from "./calendarFeed.js";
 import { syncCanvas } from "./canvas.js";
@@ -48,10 +49,15 @@ function limited(perMinute: number) {
 /** /api/admin/*: a Bearer ADMIN_TOKEN, or (locally only) a request from this computer. */
 function adminOnly(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization ?? "";
-  const given = Buffer.from(header.startsWith("Bearer ") ? header.slice(7) : "");
-  const want = Buffer.from(config.adminToken);
-  if (want.length && given.length === want.length && timingSafeEqual(given, want)) return next();
-  // Locally, requests from this computer are trusted. In the cloud only the token counts.
+  if (header.startsWith("Bearer ") && tokenMatches(header.slice(7))) return next();
+  // The /admin page signs in once and then uses an httpOnly session cookie.
+  if (hasSession(req)) {
+    // POSTs must be JSON: with a SameSite=Strict cookie that rules out cross-site form posts. (DELETE can't be
+    // sent cross-site without a CORS preflight, which Beast never grants, so it needs no body.)
+    if (req.method === "POST" && !req.is("application/json")) return void res.status(415).json({ error: "JSON only" });
+    return next();
+  }
+  // Locally, requests from this computer are trusted. In the cloud only the token or a session counts.
   if (!config.cloud && LOOPBACK.has(req.socket.remoteAddress ?? "")) return next();
   res.status(401).json({ error: "admin only" });
 }
@@ -224,26 +230,21 @@ app.post("/webhooks/linq", express.raw({ type: "*/*", limit: "2mb" }), linqWebho
 publicRoutes(app);
 app.use(express.static("public", { index: false }));
 
+// Owner sign-in for /admin: token in, httpOnly session cookie out.
+app.get("/admin", (_req, res) => res.sendFile(path.resolve("public", "admin.html")));
+app.post("/api/admin/session", express.json({ limit: "2kb" }), limited(5), (req, res) => {
+  if (!tokenMatches(String(req.body?.token ?? ""))) return void res.status(401).json({ error: "That token isn't right." });
+  startSession(res);
+  res.json({ ok: true });
+});
+app.post("/api/admin/logout", (req, res) => {
+  endSession(req, res);
+  res.json({ ok: true });
+});
+
 const admin = express.Router();
 admin.use(adminOnly, express.json());
-admin.get("/users", (_req, res) =>
-  res.json(
-    global.listUsers().map((u) => ({
-      id: u.id,
-      name: u.name,
-      handleLast4: u.handle.slice(-4),
-      role: u.role,
-      status: u.status,
-      school: u.school,
-      model: u.model,
-      invitesLeft: u.invitesLeft,
-      createdAt: u.createdAt,
-      lastActiveAt: u.lastActiveAt,
-      connections: withUser(u.id, () => store.listConnectionKinds()),
-      last7d: withUser(u.id, () => summarize(7)),
-    })),
-  ),
-);
+mountAdminRoutes(admin);
 // Manual backup download (gzipped JSON bundle). Treat the file like a password: it has everyone's data.
 admin.get("/backup", (_req, res) => {
   res.set({ "Content-Type": "application/gzip", "Content-Disposition": `attachment; filename="beast-${new Date().toISOString().slice(0, 10)}.json.gz"` });
@@ -251,15 +252,9 @@ admin.get("/backup", (_req, res) => {
 });
 admin.post("/backup", wrap(async (_req, res) => res.json({ key: await runBackup() })));
 admin.get("/stats", (_req, res) => res.type("text/plain").send(statsText()));
-admin.get("/feedback", (_req, res) => res.json(global.listFeedback()));
-admin.get("/waitlist", (_req, res) => res.json(global.listWaitlist()));
-admin.post("/invites", (req, res) => {
-  const own = global.owner();
-  if (!own) return void res.status(409).json({ error: "no owner yet" });
-  const invite = global.createInvite(own.id, String(req.body?.note ?? ""));
-  if (req.body?.email) global.markWaitlistInvited(String(req.body.email), invite.code);
-  res.status(201).json({ code: invite.code, url: inviteUrl(invite.code) });
-});
+admin.get("/feedback", (_req, res) =>
+  res.json(global.listFeedback().map((f) => ({ ...f, name: global.getUser(f.userId)?.name ?? "deleted user" }))),
+);
 admin.get("/users/:userId/assignments", asUser((_req, res) => res.json(store.listAssignments({ status: "all" }))));
 admin.post(
   "/users/:userId/assignments",
