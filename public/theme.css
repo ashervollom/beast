@@ -1,14 +1,14 @@
-/* Beast design tokens: warm paper, ink, one sage accent. Light by default, dark follows the device. */
+/* Beast design tokens: cream paper (docs/BRAND.md), ink, one sage accent. Light by default, dark follows the device. */
 :root {
   color-scheme: light dark;
-  --paper: #f5f1ec;
-  --paper-2: #efe9e2;
+  --paper: #f1e7d6;
+  --paper-2: #e7dcc8;
   --ink: #191917;
   --ink-2: #3a3935;
   --muted: #77736d;
   --rule: rgba(25, 25, 23, 0.14);
   --rule-strong: rgba(25, 25, 23, 0.85);
-  --field: #fbf9f6;
+  --field: #f7f0e4;
   --accent: #6fa595;
   --accent-ink: #2f5d50;
   --danger: #b4483c;
