@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="no-referrer" />
   <title>Connect Canvas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/theme.css" />
   <link rel="stylesheet" href="/pages.css" />
 </head>
 <body>
@@ -36,10 +40,10 @@
           <input id="host" name="host" placeholder="canvas.yourschool.edu" value="${esc(host)}" autocomplete="off" required />
           <label for="tok">Access token</label>
           <input id="tok" name="tok" type="password" autocomplete="off" required />
-          <button class="btn" id="go">Connect</button>
+          <button class="btn" id="go">Connect <span aria-hidden="true">→</span></button>
           <p class="note" id="msg"></p>
         </form>
-        <p class="note">Your token is encrypted and only used to read your Canvas. Text Beast <code>disconnect canvas</code> anytime to delete it. Your school's IT hasn't reviewed Beast, so this is between you and Beast; you can also revoke the token in Canvas whenever you want. <a href="/privacy" style="color:inherit">Privacy</a></p>`;
+        <p class="note">Your token is encrypted and only used to read your Canvas. Text Beast <code>disconnect canvas</code> anytime to delete it. Your school's IT hasn't reviewed Beast, so this is between you and Beast; you can also revoke the token in Canvas whenever you want. <a href="/privacy">Privacy</a></p>`;
 
       document.getElementById("f").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -55,7 +59,7 @@
         }).catch(() => null);
         const body = res ? await res.json().catch(() => ({})) : {};
         if (res?.ok) {
-          app.innerHTML = `<h1>Connected ✓</h1><p>Beast is pulling your classes now. Head back to iMessage.</p>`;
+          app.innerHTML = `<h1>Connected.</h1><p>Beast is digging through your classes now. Head back to iMessage, or <a href="/app/classes">see them on your account</a> in a few minutes.</p>`;
         } else {
           btn.disabled = false;
           msg.className = "note error";

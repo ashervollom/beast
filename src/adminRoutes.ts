@@ -67,8 +67,12 @@ function inviteRow(i: global.Invite) {
     createdBy: global.getUser(i.createdBy)?.name ?? "deleted user",
     createdAt: i.createdAt,
     expiresAt: i.expiresAt ?? null,
-    status: state === "used" ? "used" : state === "expired" ? (i.refunded ? "refunded" : "expired") : "open",
-    usedBy: i.usedBy ? (global.getUser(i.usedBy)?.name ?? "deleted user") : null,
+    // A personal link is reusable: "open" while its maker has invites left, "used up" after.
+    personal: Boolean(i.personal),
+    status: i.personal ? (state === "ok" ? "open" : "used up") : state === "used" ? "used" : state === "expired" ? (i.refunded ? "refunded" : "expired") : "open",
+    usedBy: i.personal
+      ? (i.usedByAll ?? []).map((id) => global.getUser(id)?.name ?? "deleted user").join(", ") || null
+      : i.usedBy ? (global.getUser(i.usedBy)?.name ?? "deleted user") : null,
   };
 }
 

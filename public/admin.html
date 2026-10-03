@@ -3,34 +3,32 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="dark" />
   <meta name="robots" content="noindex" />
   <meta name="referrer" content="no-referrer" />
-  <title>beast admin</title>
+  <title>Beast admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/theme.css" />
   <style>
+    /* Admin on the shared tokens in theme.css. */
     :root {
-      --bg: #0f0f0f;
-      --surface: #171717;
-      --line: #262626;
-      --text: #ededeb;
-      --muted: #8a8a86;
-      --accent: #ededeb;
-      --ok: #4dab9a;
-      --warn: #d9a24c;
-      --danger: #ff7369;
-      --radius: 10px;
+      --bg: var(--paper);
+      --surface: var(--paper-2);
+      --line: var(--rule);
+      --text: var(--ink);
+      --warn: #b9862f;
     }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    body { font-size: 14px; }
     main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 80px; }
     header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
-    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+    h1 { margin: 0; font: 400 32px/1.1 var(--serif); letter-spacing: -0.02em; }
     h1 span { color: var(--muted); font-weight: 500; }
-    h2 { font-size: 15px; margin: 36px 0 10px; display: flex; align-items: center; gap: 10px; }
-    h2 small { color: var(--muted); font-weight: 400; }
+    h2 { font: 400 22px/1.2 var(--serif); margin: 40px 0 12px; display: flex; align-items: center; gap: 10px; }
+    h2 small { color: var(--muted); font: 400 13px var(--sans); }
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
     .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
-    .tile b { display: block; font-size: 22px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .tile b { display: block; font: 400 26px/1.2 var(--serif); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
     .tile span { color: var(--muted); font-size: 12px; }
     .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
     table { width: 100%; border-collapse: collapse; }
@@ -40,15 +38,15 @@
     td.num { font-variant-numeric: tabular-nums; }
     .empty { color: var(--muted); padding: 14px 12px; }
     .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; background: var(--line); color: var(--muted); }
-    .pill.ok { background: rgba(77, 171, 154, 0.15); color: var(--ok); }
-    .pill.warn { background: rgba(217, 162, 76, 0.15); color: var(--warn); }
-    .pill.bad { background: rgba(255, 115, 105, 0.15); color: var(--danger); }
+    .pill.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+    .pill.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+    .pill.bad { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
     button, .btn {
       font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid var(--line);
       border-radius: 8px; padding: 4px 10px; cursor: pointer; text-decoration: none; display: inline-block;
     }
-    button:hover, .btn:hover { border-color: #444; }
-    button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
+    button:hover, .btn:hover { border-color: var(--ink-2); }
+    button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; }
     button.danger { color: var(--danger); }
     button[disabled] { opacity: 0.5; cursor: default; }
     .actions { display: flex; gap: 6px; }
@@ -64,8 +62,8 @@
     .signin button { width: 100%; padding: 12px; font-size: 14px; }
     .msg { color: var(--muted); min-height: 20px; margin-top: 10px; }
     .msg.error { color: var(--danger); }
-    dialog { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 14px; max-width: 520px; width: calc(100% - 32px); padding: 20px; }
-    dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog { background: var(--paper); color: var(--text); border: 1px solid var(--line); border-radius: 14px; max-width: 520px; width: calc(100% - 32px); padding: 20px; }
+    dialog::backdrop { background: rgba(25, 25, 23, 0.35); }
     dialog textarea { width: 100%; min-height: 130px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; font: inherit; resize: vertical; }
     dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
     .banner { background: rgba(217, 162, 76, 0.12); color: var(--warn); border: 1px solid rgba(217, 162, 76, 0.3); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 18px; }
@@ -115,7 +113,7 @@
     function signIn() {
       app.innerHTML = `
         <form class="signin" id="f">
-          <h1>beast <span>admin</span></h1>
+          <h1>Beast <span>admin</span></h1>
           <input id="token" type="password" placeholder="Admin token" autocomplete="current-password" aria-label="Admin token" required />
           <button class="primary">Sign in</button>
           <p class="msg" id="msg"></p>
@@ -173,7 +171,7 @@
       const maxDay = Math.max(0.01, ...usage.daily.map((d) => d.cost));
       app.innerHTML = `
         <header>
-          <h1>beast <span>admin</span></h1>
+          <h1>Beast <span>admin</span></h1>
           <div class="actions"><button id="new-invite" class="primary">New invite</button><button id="refresh">Refresh</button><button id="logout">Sign out</button></div>
         </header>
         ${o.dryRun ? `<div class="banner">Dry run is on: Beast logs texts instead of sending them.</div>` : ""}
@@ -219,9 +217,9 @@
         <div class="wrap"><table>
           <tr><th>Made by</th><th>Note</th><th>Made</th><th>Expires</th><th>Status</th><th></th></tr>
           ${invites.length ? invites.map((i) => `
-            <tr><td>${esc(i.createdBy)}</td><td>${esc(i.note || "–")}</td><td>${when(i.createdAt)}</td><td>${i.expiresAt ? new Date(i.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "–"}</td>
-            <td><span class="pill ${i.status === "used" ? "ok" : i.status === "open" ? "warn" : ""}">${esc(i.status)}${i.usedBy ? ` · ${esc(i.usedBy)}` : ""}</span></td>
-            <td class="actions">${i.status === "open" ? `<button data-copylink="${esc(i.url ?? "")}">Copy link</button><button class="danger" data-revoke="${esc(i.code)}">Revoke</button>` : ""}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">No invites yet.</td></tr>`}
+            <tr><td>${esc(i.createdBy)}</td><td>${i.personal ? `<span class="pill">reusable</span> ` : ""}${esc(i.note || (i.personal ? i.code : "–"))}</td><td>${when(i.createdAt)}</td><td>${i.expiresAt ? new Date(i.expiresAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "–"}</td>
+            <td><span class="pill ${i.status === "used" || i.status === "used up" ? "ok" : i.status === "open" ? "warn" : ""}">${esc(i.status)}${i.usedBy ? ` · ${esc(i.usedBy)}` : ""}</span></td>
+            <td class="actions">${i.status === "open" ? `<button data-copylink="${esc(i.url ?? "")}">Copy link</button>${i.personal ? "" : `<button class="danger" data-revoke="${esc(i.code)}">Revoke</button>`}` : ""}</td></tr>`).join("") : `<tr><td colspan="6" class="empty">No invites yet.</td></tr>`}
         </table></div>
 
         <h2>Usage <small>last 7 days</small></h2>

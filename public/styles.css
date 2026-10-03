@@ -1,28 +1,30 @@
-/* Notion-style board, dark theme. */
+/* The private board (/dashboard/<slug>), on the shared tokens in theme.css: paper in light, charcoal in dark. */
 :root {
-  --bg: #191919;
-  --text: rgba(255, 255, 255, 0.81);
-  --text-2: rgba(255, 255, 255, 0.46);
-  --text-3: rgba(255, 255, 255, 0.28);
-  --line: rgba(255, 255, 255, 0.094);
-  --hover: rgba(255, 255, 255, 0.045);
-  --card: #252525;
-  --card-ring: rgba(255, 255, 255, 0.07);
-  --card-shade: rgba(0, 0, 0, 0.2);
-  --chip: rgba(255, 255, 255, 0.07);
-  --red: rgb(230, 91, 85);
-  --red-bg: rgba(110, 54, 48, 0.8);
-  --amber: rgb(222, 169, 76);
-  --st-todo-bg: rgb(55, 55, 55);
-  --st-todo-fg: rgba(255, 255, 255, 0.81);
-  --st-todo-dot: rgb(125, 122, 117);
-  --st-prog-bg: rgb(40, 69, 108);
-  --st-prog-fg: rgba(255, 255, 255, 0.88);
-  --st-prog-dot: rgb(91, 151, 189);
-  --st-done-bg: rgb(43, 89, 63);
-  --st-done-fg: rgba(255, 255, 255, 0.88);
-  --st-done-dot: rgb(108, 155, 125);
-  --link: rgb(82, 156, 202);
+  --bg: var(--paper);
+  --text: var(--ink);
+  --text-2: var(--muted);
+  --text-3: color-mix(in srgb, var(--muted) 70%, transparent);
+  --line: var(--rule);
+  --hover: color-mix(in srgb, var(--ink) 4%, transparent);
+  --card: var(--field);
+  --card-ring: var(--rule);
+  --card-shade: rgba(25, 25, 23, 0.04);
+  --chip: var(--paper-2);
+  --red: var(--danger);
+  --red-bg: color-mix(in srgb, var(--danger) 14%, transparent);
+  --amber: #b9862f;
+  --st-todo-bg: var(--paper-2);
+  --st-todo-fg: var(--ink-2);
+  --st-todo-dot: var(--muted);
+  --st-prog-bg: color-mix(in srgb, #5b86a8 18%, transparent);
+  --st-prog-fg: var(--ink);
+  --st-prog-dot: #5b86a8;
+  --st-done-bg: color-mix(in srgb, var(--accent) 22%, transparent);
+  --st-done-fg: var(--ink);
+  --st-done-dot: var(--accent);
+  --st-exam-bg: color-mix(in srgb, #cb912f 20%, transparent);
+  --st-exam-dot: #cb912f;
+  --link: var(--accent-ink);
 }
 
 * { box-sizing: border-box; }
@@ -31,7 +33,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14.5px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Helvetica, Arial, sans-serif;
+  font: 14.5px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
 a { color: inherit; }
@@ -41,7 +43,7 @@ button { font: inherit; color: inherit; }
 
 /* ---- page header: title + properties ---- */
 .page-head h1 {
-  font-size: 40px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 18px;
+  font: 400 44px/1.1 var(--serif); letter-spacing: -0.02em; margin: 0 0 18px;
 }
 .props { display: grid; grid-template-columns: 180px 1fr; margin: 0; max-width: 560px; }
 .props dt, .props dd {
@@ -138,8 +140,8 @@ button { font: inherit; color: inherit; }
 }
 
 /* Exams & quizzes strip above the board */
-.status.exam { background: rgb(92, 59, 35); color: rgba(255, 255, 255, 0.88); }
-.status.exam i { background: rgb(203, 145, 47); }
+.status.exam { background: var(--st-exam-bg); color: var(--ink); }
+.status.exam i { background: var(--st-exam-dot); }
 .exams { margin-top: 18px; }
 .exam-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .exam {
