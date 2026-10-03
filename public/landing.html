@@ -119,17 +119,22 @@
     .go .face, .go .eye { transform-box: fill-box; transform-origin: center; }
     .go .eye { fill: currentColor; transform: scaleY(0); }
     .done .go { cursor: default; }
-    /* Coming alive: the arrow shrinks away, his eyes slowly pop open, then one blink. */
+    /* Coming alive: the arrow shrinks away, his eyes pop open one at a time with a little bounce, then he blinks. */
     .done .go .face { opacity: 0; animation: arrow-out 200ms ease-in; }
-    .done .go .eye { transform: scaleY(1); animation: eyes-open 2200ms 200ms ease-in-out both; }
+    .done .go .eye { transform: scaleY(1); animation: eye-pop 620ms 180ms ease-out both, blink 240ms 1250ms ease-in-out; }
+    .done .go .eye + .eye { animation-delay: 430ms, 1250ms; }
     @keyframes arrow-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.2); } }
-    @keyframes eyes-open {
+    @keyframes eye-pop {
       0% { transform: scaleY(0); }
-      45% { transform: scaleY(1.15); }
-      62% { transform: scaleY(1); }
-      86% { transform: scaleY(1); }
-      92% { transform: scaleY(0.1); }
+      30% { transform: scaleY(1.3); }
+      48% { transform: scaleY(0.8); }
+      64% { transform: scaleY(1.1); }
+      80% { transform: scaleY(0.96); }
       100% { transform: scaleY(1); }
+    }
+    @keyframes blink {
+      0%, 100% { transform: scaleY(1); }
+      50% { transform: scaleY(0.1); }
     }
     .busy .go { opacity: 0.6; }
     .note { min-height: 22px; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
