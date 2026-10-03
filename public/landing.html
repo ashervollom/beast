@@ -3,122 +3,221 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="dark" />
-  <title>beast</title>
-  <meta name="description" content="Your school sidekick, over iMessage. Join the waitlist." />
+  <title>Beast</title>
+  <meta name="description" content="Beast is a school sidekick that lives in your texts. Join the waitlist." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/theme.css" />
   <style>
-    :root {
-      --bg: #0f0f0f;
-      --text: #f2f2f0;
-      --muted: #8a8a86;
-      --field: #1a1a1a;
-      --line: #2a2a2a;
-      --accent: #f2f2f0;
-      --ok: #4dab9a;
-      --danger: #ff7369;
+    main {
+      max-width: 700px;
+      padding: 40px 16px 120px;
+      margin-left: clamp(0px, 5vw, 64px);
     }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    @media (min-width: 720px) {
+      main { padding-top: 56px; }
+    }
+
+    /* ---- the mascot (placeholder art; swap the SVG from Figma, keep the classes) ---- */
+    .mascot {
+      display: block;
+      width: 46px;
+      height: 112px;
+      margin: 0 0 clamp(64px, 14vh, 120px) 0;
+      color: var(--ink);
+      transform-origin: 50% 95%;
+      animation: idle 7s ease-in-out 1.6s infinite;
+    }
+    .mascot path, .mascot circle, .mascot ellipse {
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: draw 900ms cubic-bezier(.5,.1,.3,1) forwards;
+    }
+    .mascot .s2 { animation-delay: 120ms; }
+    .mascot .s3 { animation-delay: 240ms; }
+    .mascot .s4 { animation-delay: 340ms; }
+    .mascot .s5 { animation-delay: 440ms; }
+    .mascot .eye { fill: currentColor; stroke: none; opacity: 0; animation: appear 200ms 900ms forwards, blink 6s 3s infinite; transform-box: fill-box; transform-origin: center; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes appear { to { opacity: 1; } }
+    @keyframes blink { 0%, 96%, 100% { transform: scaleY(1); } 98% { transform: scaleY(0.1); } }
+    @keyframes idle {
+      0%, 86%, 100% { transform: rotate(0deg); }
+      89% { transform: rotate(-3deg); }
+      92% { transform: rotate(2deg); }
+      95% { transform: rotate(-1deg); }
+    }
+
+    /* ---- copy ---- */
+    p { margin: 0 0 22px; font-size: clamp(18px, 2.3vw, 21px); line-height: 1.45; color: var(--ink); max-width: 34em; }
+    p.lead { font-weight: 600; letter-spacing: -0.01em; }
+
+    /* ---- the call to action ---- */
+    .cta { margin-top: clamp(56px, 10vh, 92px); }
+    .cta-line {
+      position: relative;
+      display: inline-block;
+      font: 600 clamp(18px, 2.3vw, 21px)/1.3 var(--sans);
+      color: var(--ink);
+      background: none;
+      border: 0;
+      padding: 0 0 18px;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+    }
+    .cta-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 4px; }
+    .brush {
+      position: absolute;
+      left: 22%;
+      bottom: 0;
+      width: 82%;
+      height: 14px;
+      color: var(--accent);
+      pointer-events: none;
+      clip-path: inset(0 100% 0 0);
+      animation: paint 700ms cubic-bezier(.6,.05,.25,1) 1.1s forwards;
+    }
+    .brush.repaint { animation: none; clip-path: inset(0 100% 0 0); }
+    .brush.repaint.again { animation: paint 600ms cubic-bezier(.6,.05,.25,1) forwards; }
+    @keyframes paint { to { clip-path: inset(0 0 0 0); } }
+
+    form {
       display: grid;
-      place-items: center;
-      padding: 24px 16px;
+      grid-template-rows: 0fr;
+      opacity: 0;
+      transition: grid-template-rows 380ms cubic-bezier(.2,.7,.2,1), opacity 300ms ease, margin 380ms;
+      margin-top: 0;
+      max-width: 420px;
     }
-    main { width: 100%; max-width: 420px; text-align: center; }
-    h1 {
-      margin: 0 0 28px;
-      font-size: clamp(56px, 16vw, 96px);
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      line-height: 1;
-      animation: rise 700ms cubic-bezier(.2,.7,.2,1) both;
+    form > div { overflow: hidden; }
+    .cta.open form { grid-template-rows: 1fr; opacity: 1; margin-top: 18px; }
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1.5px solid var(--rule-strong);
+      padding: 4px 0 6px;
     }
-    form { display: flex; gap: 8px; animation: rise 700ms 120ms cubic-bezier(.2,.7,.2,1) both; }
-    input {
+    .field input {
       flex: 1;
       min-width: 0;
-      padding: 14px 16px;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: var(--field);
-      color: var(--text);
-      font: inherit;
-      outline: none;
-      transition: border-color 160ms;
-    }
-    input:focus { border-color: #555; }
-    button {
-      position: relative;
-      flex: none;
-      width: 168px;
-      height: 50px;
       border: 0;
-      border-radius: 12px;
-      background: var(--accent);
-      color: var(--bg);
-      font-family: inherit;
-      font-size: 15px;
-      font-weight: 600;
+      outline: none;
+      background: transparent;
+      color: var(--ink);
+      font: 400 18px/1.4 var(--sans);
+      padding: 6px 0;
+    }
+    .field input::placeholder { color: var(--muted); }
+    .go {
+      flex: none;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 0;
+      background: var(--ink);
+      color: var(--paper);
+      display: grid;
+      place-items: center;
       cursor: pointer;
-      overflow: hidden;
-      transition: width 420ms cubic-bezier(.2,.7,.2,1), background 300ms, transform 120ms;
+      transition: background 300ms, transform 120ms;
     }
-    button:active { transform: scale(0.98); }
-    button .label { transition: opacity 160ms; }
-    button svg { position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; opacity: 0; }
-    button svg path { stroke-dasharray: 30; stroke-dashoffset: 30; }
-    form.done input { opacity: 0; width: 0; flex: 0; padding: 0; border: 0; transition: all 360ms; }
-    form.done button { width: 100%; background: var(--ok); cursor: default; }
-    form.done button .label { opacity: 0; }
-    form.done button svg { opacity: 1; }
-    form.done button svg path { animation: draw 420ms 200ms ease-out forwards; }
-    form.busy button { opacity: 0.7; }
-    .msg { min-height: 24px; margin-top: 14px; font-size: 14px; color: var(--muted); transition: color 200ms; }
-    .msg.error { color: var(--danger); }
-    .msg.ok { color: var(--text); animation: rise 500ms 250ms both; }
-    footer { position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; font-size: 12px; }
+    .go:active { transform: scale(0.94); }
+    .go svg { width: 18px; height: 18px; }
+    .go .check { display: none; }
+    .done .go { background: var(--ok); cursor: default; }
+    .done .go .arrow { display: none; }
+    .done .go .check { display: block; }
+    .done .go .check path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: tick 380ms 120ms ease-out forwards; }
+    @keyframes tick { to { stroke-dashoffset: 0; } }
+    .busy .go { opacity: 0.6; }
+    .note { min-height: 22px; margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+    .note.error { color: var(--danger); }
+
+    footer { max-width: 700px; margin: -64px 0 0 clamp(0px, 5vw, 64px); padding: 0 16px 24px; font-size: 13px; }
     footer a { color: var(--muted); text-decoration: none; }
-    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-    @keyframes draw { to { stroke-dashoffset: 0; } }
-    @media (max-width: 420px) {
-      form { flex-direction: column; }
-      button { width: 100%; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation: none !important; transition: none !important; }
-      button svg path { stroke-dashoffset: 0; }
-    }
+    footer a:hover { color: var(--ink); }
   </style>
 </head>
 <body>
   <main>
-    <h1>beast</h1>
-    <form id="f" novalidate>
-      <input id="contact" name="contact" type="text" inputmode="email" autocomplete="email" placeholder="email or phone number" aria-label="Email or phone number" required />
-      <button id="go" type="submit">
-        <span class="label">Join the waitlist</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+    <!-- Placeholder Beast, hand-drawn in rough ink strokes. Replace with the Figma drawing (keep class="mascot"). -->
+    <svg class="mascot" viewBox="0 0 46 112" aria-label="Beast" role="img">
+      <!-- head, a little lumpy, with two nub horns -->
+      <path class="s1" pathLength="1" stroke-width="3.4" d="M23.5 6.5c-6.2-.4-10.6 4.2-10.4 9.6.2 5.6 4.6 9.3 10.1 9.2 5.9-.2 10-4.4 9.7-9.9-.2-5.1-4.2-8.7-9.4-8.9z" />
+      <path class="s2" pathLength="1" stroke-width="2.6" d="M16.2 9.4l-2.6-5.6M30.4 9.2l2.9-5.3" />
+      <!-- body: one wobbly brush line, wider at the bottom like a quick ink stroke -->
+      <path class="s3" pathLength="1" stroke-width="3.8" d="M23.2 25.6c.6 10.4-.8 21.6.3 33.9" />
+      <!-- arms, one up mid-wave -->
+      <path class="s4" pathLength="1" stroke-width="2.6" d="M22.6 35.2c-4.2 4.1-7.1 9.9-9 16.2M23.8 34.6c4.5-2.4 8.6-6.9 11.6-12.6" />
+      <!-- legs and a stubby tail -->
+      <path class="s5" pathLength="1" stroke-width="3" d="M23.4 59.2c-3.4 11.6-6.1 24.3-8.6 38.4M23.7 59.4c3.2 11.3 5.6 24 7.9 37.6M14.6 97.8c-1.8.6-3.4 1.4-4.6 2.6M31.7 97.2c1.9.6 3.6 1.5 4.9 2.8M23.9 57.4c2.6 1.2 4.4 3.4 5 6" />
+      <ellipse class="eye" cx="20.3" cy="15.4" rx="1.3" ry="1.6" />
+      <ellipse class="eye" cx="26.7" cy="15.2" rx="1.3" ry="1.6" />
+    </svg>
+
+    <p class="lead">Beast is a school sidekick that knows your classes, what's due, and what you've got going on. It lives in your texts.</p>
+    <p>There's nothing new to learn. You text it like you'd text a friend. It reads your Canvas, your syllabi and your class websites, so it already knows the stuff you'd otherwise have to dig for.</p>
+    <p>Beast sends a quick rundown in the morning, nudges you before deadlines sneak up, finds the Zoom link five minutes before lecture, and plans your week around work, practice and everything else you've got.</p>
+
+    <div class="cta" id="cta">
+      <button class="cta-line" id="open" aria-expanded="false" aria-controls="f">
+        <span id="cta-text">Join the waitlist</span>
+        <svg class="brush" id="brush" viewBox="0 0 260 16" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <filter id="rough" x="-5%" y="-40%" width="110%" height="180%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.9 0.35" numOctaves="2" seed="7" />
+              <feDisplacementMap in="SourceGraphic" scale="3.2" />
+            </filter>
+          </defs>
+          <path fill="currentColor" filter="url(#rough)" d="M3 9.2C40 6.4 92 5.6 140 6.1c42 .4 82 1.3 115 2.9 1.6.1 2.4 1.7 1.6 3-1 1.4-3 1.6-4.6 1.5-36-1.4-73-1.9-112-1.9-46 0-90 .9-133 2.6-2.4.1-4.4-1.3-4.3-2.8.1-1.3 1.3-2.1 2.7-2.2z" />
+        </svg>
       </button>
-    </form>
-    <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      <form id="f" novalidate>
+        <div>
+          <div class="field">
+            <input id="contact" name="contact" type="text" inputmode="email" autocomplete="email" placeholder="Your email or phone number" aria-label="Email or phone number" />
+            <button class="go" id="go" type="submit" aria-label="Join the waitlist">
+              <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+              <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            </button>
+          </div>
+          <p class="note" id="note" role="status" aria-live="polite"></p>
+        </div>
+      </form>
+    </div>
   </main>
   <footer><a href="/privacy">privacy</a></footer>
+
   <script type="module">
+    const cta = document.getElementById("cta");
+    const open = document.getElementById("open");
     const form = document.getElementById("f");
     const input = document.getElementById("contact");
-    const msg = document.getElementById("msg");
+    const note = document.getElementById("note");
+    const brush = document.getElementById("brush");
+    const ctaText = document.getElementById("cta-text");
+
+    open.addEventListener("click", () => {
+      if (cta.classList.contains("open")) return input.focus();
+      cta.classList.add("open");
+      open.setAttribute("aria-expanded", "true");
+      setTimeout(() => input.focus(), 200);
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (form.classList.contains("done") || form.classList.contains("busy")) return;
       const contact = input.value.trim();
       if (!contact) return void input.focus();
       form.classList.add("busy");
-      msg.className = "msg";
-      msg.textContent = "";
+      note.className = "note";
+      note.textContent = "";
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -127,12 +226,17 @@
       form.classList.remove("busy");
       if (res?.ok) {
         form.classList.add("done");
-        msg.className = "msg ok";
-        msg.textContent = "you're on the list. we'll be in touch.";
+        input.readOnly = true;
+        ctaText.textContent = "You're on the list.";
+        note.textContent = "We'll reach out when there's a spot for you.";
+        // Repaint the brush stroke as the "got it" moment.
+        brush.classList.add("repaint");
+        void brush.getBoundingClientRect();
+        brush.classList.add("again");
       } else {
         const body = res ? await res.json().catch(() => ({})) : {};
-        msg.className = "msg error";
-        msg.textContent = body.error || "Couldn't reach Beast. Try again.";
+        note.className = "note error";
+        note.textContent = body.error || "Couldn't reach Beast. Try again in a sec.";
       }
     });
   </script>

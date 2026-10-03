@@ -1,0 +1,65 @@
+/* Beast design tokens: warm paper, ink, one sage accent. Light by default, dark follows the device. */
+:root {
+  color-scheme: light dark;
+  --paper: #f5f1ec;
+  --paper-2: #efe9e2;
+  --ink: #191917;
+  --ink-2: #3a3935;
+  --muted: #77736d;
+  --rule: rgba(25, 25, 23, 0.14);
+  --rule-strong: rgba(25, 25, 23, 0.85);
+  --field: #fbf9f6;
+  --accent: #6fa595;
+  --accent-ink: #2f5d50;
+  --danger: #b4483c;
+  --ok: #3f7d6c;
+  --radius: 10px;
+  --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --sans: "Inter", ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #161514;
+    --paper-2: #1d1c1a;
+    --ink: #ecebe7;
+    --ink-2: #c9c6bf;
+    --muted: #8f8b84;
+    --rule: rgba(236, 235, 231, 0.14);
+    --rule-strong: rgba(236, 235, 231, 0.8);
+    --field: #1f1e1c;
+    --accent: #7fb5a5;
+    --accent-ink: #a9d3c6;
+    --danger: #e0786b;
+    --ok: #7fb5a5;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #161514;
+  --paper-2: #1d1c1a;
+  --ink: #ecebe7;
+  --ink-2: #c9c6bf;
+  --muted: #8f8b84;
+  --rule: rgba(236, 235, 231, 0.14);
+  --rule-strong: rgba(236, 235, 231, 0.8);
+  --field: #1f1e1c;
+  --accent: #7fb5a5;
+  --accent-ink: #a9d3c6;
+  --danger: #e0786b;
+  --ok: #7fb5a5;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
