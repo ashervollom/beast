@@ -42,10 +42,14 @@ export async function handleCommand(user: global.User, text: string): Promise<st
     return "got it, passing that straight to the guy who built me 🙏";
   }
 
-  // ---- invites: a one-use signup link (the friend enters their own number on the page) ----
+  // ---- invites: the user's own reusable link (a friend enters their number on the page) ----
   if (/^(invite|send (an |me an )?invite|invite link|get an invite)( link)?[.!?]?$/i.test(t)) {
     if (user.role !== "owner" && user.invitesLeft <= 0) return "ur out of invites for now";
-    return createInviteLink(user);
+    const { invite, joined } = global.personalInvite(user.id);
+    track("invite");
+    const link = inviteUrl(invite.code);
+    const left = user.role === "owner" ? "" : ` (${user.invitesLeft} left)`;
+    return link ? `here's ur invite link${left}, send it to whoever: ${link}` + (joined ? `\n${joined} joined so far` : "") : `they text me "join ${invite.code}"`;
   }
 
   // ---- links and connections ----

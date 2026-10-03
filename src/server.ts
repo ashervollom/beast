@@ -1,6 +1,8 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import path from "node:path";
 import { config } from "./config.js";
+import { limited } from "./rateLimit.js";
+import { mountAccountRoutes } from "./accountRoutes.js";
 import { endSession, hasSession, startSession, tokenMatches } from "./adminSession.js";
 import { mountAdminRoutes } from "./adminRoutes.js";
 import { linqWebhook, lastWebhookAt } from "./imessage.js";
@@ -31,20 +33,6 @@ const wrap =
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
-/** Per-IP limit per minute for public form endpoints (in memory; enough for one server). */
-function limited(perMinute: number) {
-  const hits = new Map<string, number[]>();
-  return (req: Request, res: Response, next: NextFunction) => {
-    const key = `${req.path}|${req.ip}`;
-    const now = Date.now();
-    const recent = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
-    if (recent.length >= perMinute) return void res.status(429).json({ error: "Slow down a sec and try again." });
-    recent.push(now);
-    hits.set(key, recent);
-    if (hits.size > 5000) hits.clear(); // crude cap so it can't grow without bound
-    next();
-  };
-}
 
 /** /api/admin/*: a Bearer ADMIN_TOKEN, or (locally only) a request from this computer. */
 function adminOnly(req: Request, res: Response, next: NextFunction) {
@@ -138,6 +126,11 @@ function publicRoutes(app: express.Express) {
   });
 
   app.get("/privacy", (_req, res) => res.sendFile(page("privacy.html")));
+
+  // Accounts: sign in with a code over iMessage, then the account pages.
+  app.get("/signin", (_req, res) => res.sendFile(page("signin.html")));
+  app.get(["/app", "/app/*splat"], (_req, res) => res.sendFile(page("account.html")));
+  mountAccountRoutes(app);
 
   // Private calendar feed: /cal/<slug>.ics (calendar apps poll it every few hours).
   app.get("/cal/:file", (req, res) => {

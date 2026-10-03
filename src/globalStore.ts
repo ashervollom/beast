@@ -1,7 +1,7 @@
 // Data that isn't any one user's: who the users are, invites, the waitlist, which user owns which chat,
 // names of non-users seen in group chats, feedback, webhook dedupe and one-time link tokens.
 import path from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { config, MODELS } from "./config.js";
 import { JsonDoc } from "./fileStore.js";
 import { randomToken } from "./secrets.js";
@@ -34,6 +34,18 @@ export interface User {
   offeredAt: Record<string, string>;
   /** When the model-outage line was last sent in each chat (at most once an hour). */
   outageNoticeAt: Record<string, string>;
+  /** The user's own reusable invite link code (see personalInvite). */
+  personalInvite?: string;
+  /** Texts-from-Beast settings from the account page; unset fields use the server defaults. */
+  prefs?: Partial<Prefs>;
+}
+
+export interface Prefs {
+  briefTime: string; // "06:30"
+  quietStart: string; // "23:00"
+  quietEnd: string; // "08:00"
+  nudges: boolean;
+  nightly: boolean;
 }
 
 export interface Invite {
@@ -48,6 +60,10 @@ export interface Invite {
   /** Links stop working after this; an unused expired invite is refunded to its creator once. */
   expiresAt?: string;
   refunded?: boolean;
+  /** A user's personal reusable link: works while its creator has invites left, never expires. */
+  personal?: boolean;
+  /** Everyone who joined through a personal link. */
+  usedByAll?: string[];
 }
 
 export type InviteState = "ok" | "used" | "expired" | "missing";
@@ -98,6 +114,8 @@ interface GlobalDB {
   /** Uninvited numbers already told "invite only", so they get one reply and then silence. */
   uninvitedReplied: Record<string, string>;
   connectTokens: Record<string, ConnectToken>;
+  /** Signed-in account sessions: sha256(session id) -> user. Stored so a deploy doesn't sign everyone out. */
+  sessions: Record<string, { userId: string; expiresAt: string }>;
 }
 
 const empty = (): GlobalDB => ({
@@ -111,6 +129,7 @@ const empty = (): GlobalDB => ({
   processedEvents: [],
   uninvitedReplied: {},
   connectTokens: {},
+  sessions: {},
 });
 
 export const globalFile = () => path.join(config.dataDir, "global.json");
@@ -234,18 +253,31 @@ export function getInvite(code: string): Invite | undefined {
 export function inviteState(code: string): InviteState {
   const invite = getInvite(code);
   if (!invite) return "missing";
+  if (invite.personal) {
+    // Reusable: open while its owner has invites left (the Beast owner always does).
+    const creator = g().users[invite.createdBy];
+    return creator && (creator.role === "owner" || creator.invitesLeft > 0) ? "ok" : "used";
+  }
   if (invite.usedBy) return "used";
   if (invite.expiresAt && Date.parse(invite.expiresAt) < Date.now()) return "expired";
   return "ok";
 }
 
 /**
- * Burns the invite for this user. The check and the write happen in one synchronous step, so two people
- * racing on the same link can't both get in. Returns false if it was already used or has expired.
+ * Burns the invite for this user (or, for a personal link, uses up one of its owner's invites). The check and
+ * the write happen in one synchronous step, so two people racing on the same link can't both get in.
  */
 export function redeemInvite(code: string, userId: string): boolean {
   if (inviteState(code) !== "ok") return false;
   const invite = getInvite(code)!;
+  if (invite.personal) {
+    (invite.usedByAll ??= []).push(userId);
+    invite.usedAt = now();
+    const creator = g().users[invite.createdBy];
+    if (creator && creator.role !== "owner") creator.invitesLeft -= 1;
+    save();
+    return true;
+  }
   invite.usedBy = userId;
   invite.usedAt = now();
   const entry = g().waitlist.find((w) => w.inviteCode === invite.code);
@@ -254,8 +286,39 @@ export function redeemInvite(code: string, userId: string): boolean {
   return true;
 }
 
+export const INVITE_NAME = /^[a-z0-9-]{8,64}$/;
+
+/**
+ * A user's own reusable invite link, created on first use. `name` renames it (8–64 lowercase letters, numbers,
+ * hyphens) if that name isn't taken. Returns the invite and how many people joined through it.
+ */
+export function personalInvite(userId: string, name?: string): { invite: Invite; joined: number; error?: string } {
+  const user = g().users[userId];
+  if (!user) throw new Error("no such user");
+  let invite = user.personalInvite ? g().invites[user.personalInvite] : undefined;
+  if (!invite) {
+    invite = createInvite(userId, "personal link");
+    invite.personal = true;
+    delete invite.expiresAt;
+    user.personalInvite = invite.code;
+    save();
+  }
+  if (name !== undefined && name !== invite.code) {
+    const wanted = name.trim().toLowerCase();
+    if (!INVITE_NAME.test(wanted)) return { invite, joined: invite.usedByAll?.length ?? 0, error: "Use 8–64 lowercase letters, numbers or hyphens." };
+    if (g().invites[wanted]) return { invite, joined: invite.usedByAll?.length ?? 0, error: "That name is taken." };
+    delete g().invites[invite.code];
+    invite.code = wanted;
+    g().invites[wanted] = invite;
+    user.personalInvite = wanted;
+    save();
+  }
+  return { invite, joined: invite.usedByAll?.length ?? 0 };
+}
+
 /** Expires an open invite now (admin "revoke"); a user's spent invite comes back right away. */
 export function revokeInvite(code: string): boolean {
+  if (getInvite(code)?.personal) return false; // personal links are controlled by their owner's invite count
   if (inviteState(code) !== "ok") return false;
   const invite = getInvite(code)!;
   invite.expiresAt = new Date(Date.now() - 1000).toISOString();
@@ -396,4 +459,36 @@ export function writeGlobal(data: Partial<GlobalDB>) {
   doc = new JsonDoc(globalFile(), empty);
   Object.assign(doc.data, data);
   doc.save();
+}
+
+// ---- account sessions (the /app sign-in) ----
+
+const SESSION_TTL_MS = 30 * 864e5;
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/** Starts a session and returns the raw id for the cookie (only its hash is stored). */
+export function createSession(userId: string): string {
+  const db = g();
+  for (const [k, s] of Object.entries(db.sessions)) if (Date.parse(s.expiresAt) < Date.now()) delete db.sessions[k];
+  const id = randomToken(32);
+  db.sessions[sha(id)] = { userId, expiresAt: new Date(Date.now() + SESSION_TTL_MS).toISOString() };
+  save();
+  return id;
+}
+
+export function sessionUser(id: string): User | undefined {
+  const s = g().sessions[sha(id)];
+  if (!s || Date.parse(s.expiresAt) < Date.now()) return undefined;
+  return g().users[s.userId];
+}
+
+export function endSession(id: string) {
+  delete g().sessions[sha(id)];
+  save();
+}
+
+/** Signs a user out everywhere (account deleted, number changed). */
+export function endUserSessions(userId: string) {
+  for (const [k, s] of Object.entries(g().sessions)) if (s.userId === userId) delete g().sessions[k];
+  save();
 }

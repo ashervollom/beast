@@ -40,10 +40,16 @@ const hm = (s: string) => {
   return h * 60 + (m || 0);
 };
 
+/** This user's texts-from-Beast settings (account page), falling back to the server defaults. */
+function prefs() {
+  const d = config.proactive;
+  return { briefTime: d.briefTime, quietStart: d.quietStart, quietEnd: d.quietEnd, nudges: true, nightly: true, ...(currentUser().prefs ?? {}) };
+}
+
 function inQuietHours(now: Date): boolean {
   const { minutes } = local(now);
-  const start = hm(config.proactive.quietStart);
-  const end = hm(config.proactive.quietEnd);
+  const start = hm(prefs().quietStart);
+  const end = hm(prefs().quietEnd);
   return start > end ? minutes >= start || minutes < end : minutes >= start && minutes < end;
 }
 
@@ -235,16 +241,17 @@ export async function tick(now = new Date()) {
     if (lastTickAt && now.getTime() - Date.parse(lastTickAt) > DOWNTIME_MS) await catchUp(now);
 
     const { minutes } = local(now);
-    const brief = hm(config.proactive.briefTime);
+    const brief = hm(prefs().briefTime);
     if (minutes >= brief && minutes < brief + BRIEF_WINDOW_MIN && !sentToday(now).some((s) => s.kind === "brief")) {
       await morningBrief(now);
     }
 
     if (inQuietHours(now)) return;
-    await deadlineWarnings(now);
+    if (prefs().nudges) await deadlineWarnings(now);
 
     const night = hm(config.proactive.nightTime);
     if (
+      prefs().nightly &&
       minutes >= night &&
       minutes < night + NIGHTLY_WINDOW_MIN &&
       nightlyTriedOn.get(currentUserId()) !== today(now) &&

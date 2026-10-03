@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Beast</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/theme.css" />
+  <style>
+    .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; max-width: 1180px; margin: 0 auto; padding: 44px 32px 96px; }
+    nav { position: sticky; top: 44px; align-self: start; }
+    .wordmark { font: 400 32px/1 var(--serif); letter-spacing: -0.02em; margin: 0 0 30px; display: block; text-decoration: none; }
+    nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    nav a, nav button { font: 400 15px/1.4 var(--sans); color: var(--ink-2); text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+    nav a:hover, nav button:hover { color: var(--ink); }
+    nav a.on { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+    .who { margin-top: 28px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    section { margin-bottom: 68px; }
+    h2 { font: 400 clamp(26px, 3vw, 30px)/1.15 var(--serif); letter-spacing: -0.015em; margin: 0 0 6px; }
+    .desc { color: var(--muted); margin: 0 0 20px; font-size: 15px; }
+    .rule { border-top: 1px solid var(--rule-strong); }
+    .row { display: flex; align-items: center; gap: 18px; padding: 20px 4px; border-bottom: 1px solid var(--rule); }
+    .row:last-child { border-bottom: 0; }
+    .row .icon { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--paper-2); font: 500 17px/1 var(--serif); color: var(--ink-2); }
+    .row .icon.live { background: var(--ink); color: var(--paper); }
+    .row .main { flex: 1; min-width: 0; }
+    .row .title { font-weight: 500; }
+    .row .sub { color: var(--muted); font-size: 14px; margin-top: 2px; overflow-wrap: anywhere; }
+    .row .end { flex: none; display: flex; gap: 8px; align-items: center; }
+    .soon { font-size: 13px; color: var(--muted); }
+    .btn {
+      font: 500 14px/1 var(--sans); color: var(--paper); background: var(--ink); border: 1px solid var(--ink);
+      border-radius: 8px; padding: 11px 18px; cursor: pointer; text-decoration: none; white-space: nowrap;
+    }
+    .btn.ghost { color: var(--ink); background: transparent; border-color: var(--rule); }
+    .btn.ghost:hover { border-color: var(--ink-2); }
+    .btn.ok { color: var(--ok); background: transparent; border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+    .btn.danger { color: var(--danger); background: transparent; border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+    .btn[disabled] { opacity: 0.5; cursor: default; }
+    .copy { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 4px; font-size: 13px; }
+    .copy:hover { color: var(--ink); }
+    input[type="text"], input[type="time"], input:not([type]) {
+      font: 400 16px/1.2 var(--sans); color: var(--ink); background: var(--paper-2);
+      border: 1px solid transparent; border-radius: 8px; padding: 12px 14px; width: 100%;
+    }
+    input:focus { outline: none; border-color: var(--ink-2); }
+    .field { display: flex; gap: 12px; align-items: center; padding: 18px 0; }
+    .field input { flex: 1; }
+    .times { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .times input { width: 150px; }
+    .switch { position: relative; width: 52px; height: 30px; flex: none; }
+    .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .switch span { position: absolute; inset: 0; border-radius: 99px; background: var(--rule); transition: background 200ms; cursor: pointer; }
+    .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--paper); transition: transform 200ms; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+    .switch input:checked + span { background: var(--ink); }
+    .switch input:checked + span::after { transform: translateX(22px); }
+    .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .note { font-size: 14px; color: var(--muted); min-height: 20px; margin: 8px 0 0; }
+    .note.error { color: var(--danger); }
+    .empty { color: var(--muted); padding: 20px 4px; }
+    details.cls { border-bottom: 1px solid var(--rule); }
+    details.cls summary { list-style: none; cursor: pointer; display: flex; gap: 18px; align-items: baseline; padding: 20px 4px; }
+    details.cls summary::-webkit-details-marker { display: none; }
+    details.cls summary .title { font-weight: 500; flex: 1; }
+    details.cls summary .meta { color: var(--muted); font-size: 14px; text-align: right; }
+    details.cls[open] summary .title { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+    .cls-body { padding: 0 4px 22px; display: grid; gap: 14px; font-size: 15px; }
+    .cls-body dt { color: var(--muted); font-size: 13px; margin-bottom: 2px; }
+    .cls-body dd { margin: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chips a { font-size: 14px; padding: 6px 12px; border: 1px solid var(--rule); border-radius: 99px; text-decoration: none; }
+    .chips a:hover { border-color: var(--ink-2); }
+    .item { display: flex; gap: 16px; align-items: baseline; padding: 14px 4px; border-bottom: 1px solid var(--rule); }
+    .item .when { flex: none; width: 150px; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+    .item .when.soon { color: var(--danger); }
+    .item .what { flex: 1; min-width: 0; }
+    .item .course { color: var(--muted); font-size: 14px; }
+    .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--rule); border-radius: 99px; padding: 1px 8px; margin-left: 6px; }
+    dialog { border: 0; border-radius: 18px; padding: 0; width: min(560px, calc(100% - 32px)); background: var(--paper); color: var(--ink); box-shadow: 0 30px 80px rgba(0,0,0,.25); }
+    dialog::backdrop { background: rgba(25, 25, 23, 0.35); }
+    .dlg { padding: 36px 36px 24px; position: relative; }
+    .dlg h3 { font: 400 28px/1.15 var(--serif); text-align: center; margin: 0 0 22px; }
+    .dlg .x { position: absolute; top: 18px; right: 18px; background: none; border: 0; font-size: 22px; color: var(--ink-2); cursor: pointer; }
+    .dlg p { color: var(--ink-2); margin: 0 0 8px; }
+    .dlg .count { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+    .dlg label { display: block; font-size: 14px; color: var(--ink-2); margin: 0 0 8px; }
+    .dlg .help { font-size: 13px; color: var(--muted); margin: 8px 0 14px; }
+    .dlg .link { display: flex; gap: 8px; align-items: center; background: var(--paper-2); border-radius: 8px; padding: 12px 14px; font-size: 15px; overflow-wrap: anywhere; margin-top: 14px; }
+    .dlg .link span { flex: 1; }
+    .dlg-foot { border-top: 1px solid var(--rule); padding: 14px 20px; display: flex; justify-content: flex-end; }
+    .wide { width: 100%; }
+
+    @media (max-width: 820px) {
+      .shell { grid-template-columns: 1fr; gap: 28px; padding: 22px 16px 80px; }
+      nav { position: static; min-width: 0; }
+      main { min-width: 0; }
+      .wordmark { font-size: 28px; margin-bottom: 16px; }
+      nav ul { display: flex; gap: 18px; overflow-x: auto; padding-bottom: 6px; white-space: nowrap; scrollbar-width: none; }
+      nav ul::-webkit-scrollbar { display: none; }
+      .who { display: none; }
+      .row { flex-wrap: wrap; }
+      .row .main { flex: 1 1 170px; }
+      .row .end { margin-left: auto; }
+      .row:has(.icon) .end { width: 100%; justify-content: flex-start; padding-left: 58px; }
+      .times input { width: 140px; padding: 12px 8px; }
+      .item .when { width: 110px; }
+      .dlg { padding: 30px 20px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav>
+      <a class="wordmark" href="/app/workspace">Beast</a>
+      <ul>
+        <li><a href="/app/workspace" data-tab="workspace">Workspace</a></li>
+        <li><a href="/app/board" data-tab="board">Board</a></li>
+        <li><a href="/app/classes" data-tab="classes">Classes</a></li>
+        <li><button id="open-invite">Invite a friend</button></li>
+        <li><a href="/app/preferences" data-tab="preferences">Preferences</a></li>
+        <li><button id="logout">Log out</button></li>
+      </ul>
+      <div class="who" id="who"></div>
+    </nav>
+    <main id="main" aria-live="polite"></main>
+  </div>
+
+  <dialog id="invite">
+    <div class="dlg">
+      <button class="x" id="invite-close" aria-label="Close">×</button>
+      <h3>Invite a friend</h3>
+      <p>Share your link to bring someone onto Beast. It works for more than one person while you have invites left.</p>
+      <p class="count" id="invite-count"></p>
+      <label for="invite-name">Link name (optional)</label>
+      <div class="field" style="padding:0">
+        <input id="invite-name" placeholder="friends-of-beast" maxlength="64" autocomplete="off" />
+        <button class="btn ghost" id="invite-save">Save name</button>
+      </div>
+      <p class="help">8–64 lowercase letters, numbers or hyphens.</p>
+      <div class="link"><span id="invite-link"></span><button class="copy" id="invite-copy">Copy</button></div>
+      <p class="note" id="invite-note"></p>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost" id="invite-done">Done</button></div>
+  </dialog>
+
+  <script type="module">
+    const main = document.getElementById("main");
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    let me = null;
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`/api/me${path}`, {
+        credentials: "same-origin",
+        ...opts,
+        headers: opts.body ? { "Content-Type": "application/json" } : {},
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      if (res.status === 401) {
+        location.assign("/signin");
+        throw new Error("signed out");
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Something went wrong (${res.status}).`);
+      return data;
+    }
+
+    const copy = async (text, btn) => {
+      await navigator.clipboard.writeText(text).catch(() => {});
+      const old = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => (btn.textContent = old), 1200);
+    };
+    const fmtDue = (iso) => {
+      const d = new Date(iso);
+      const day = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }).replace(",", "");
+      return `${day} · ${to12(`${d.getHours()}:${d.getMinutes()}`)}`;
+    };
+    const to12 = (hhmm) => {
+      if (!hhmm) return "";
+      const [h, m] = hhmm.split(":").map(Number);
+      return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`;
+    };
+
+    // ---- tabs ----
+    const TABS = { workspace, board, classes, preferences };
+    let showing = 0;
+    function current() {
+      const t = location.pathname.split("/")[2] || "workspace";
+      return TABS[t] ? t : "workspace";
+    }
+    async function show(tab, push = false) {
+      if (push) history.pushState({}, "", `/app/${tab}`);
+      for (const a of document.querySelectorAll("nav [data-tab]")) a.classList.toggle("on", a.dataset.tab === tab);
+      document.title = `${tab[0].toUpperCase()}${tab.slice(1)} · Beast`;
+      const mine = ++showing;
+      main.innerHTML = `<p class="note">Loading…</p>`;
+      try {
+        // A tab that finishes loading after you've moved on doesn't draw over the newer one.
+        await TABS[tab](() => mine === showing);
+      } catch (err) {
+        if (mine === showing && err.message !== "signed out") main.innerHTML = `<p class="note error">${esc(err.message)}</p>`;
+      }
+    }
+    document.querySelectorAll("nav [data-tab]").forEach((a) =>
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        show(a.dataset.tab, true);
+      }),
+    );
+    addEventListener("popstate", () => show(current()));
+
+    // ---- Workspace ----
+    const CONNECTORS = [
+      { key: "google", letter: "G", name: "Google Workspace", what: "Gmail and Google Calendar: catch professor emails, plan around your schedule" },
+      { key: "outlook", letter: "O", name: "Outlook", what: "School email and calendar on Microsoft 365" },
+      { key: "ed", letter: "E", name: "Ed Discussion", what: "What people are saying about the homework and the exam" },
+      { key: "gradescope", letter: "G", name: "Gradescope", what: "Submissions and grades as they post" },
+      { key: "notion", letter: "N", name: "Notion", what: "Your notes and to-do pages" },
+      { key: "github", letter: "G", name: "GitHub", what: "Repos and deadlines for coding classes" },
+      { key: "slack", letter: "S", name: "Slack", what: "Class and club workspaces" },
+    ];
+    async function workspace() {
+      const canvas = me.connections.canvas;
+      main.innerHTML = `
+        <section>
+          <h2>Contact</h2>
+          <p class="desc">Ways to reach Beast</p>
+          <div class="rule">
+            <div class="row"><div class="icon live">B</div><div class="main"><div class="title">Messages</div><div class="sub">${esc(me.beastNumber ?? "Beast's number will show here")} ${me.beastNumber ? `<button class="copy" data-copy="${esc(me.beastNumberRaw)}">Copy</button>` : ""}</div></div>
+              ${me.beastNumberRaw ? `<div class="end"><a class="btn ghost" href="sms:${esc(me.beastNumberRaw)}">Text Beast</a></div>` : ""}</div>
+            <div class="row"><div class="icon">W</div><div class="main"><div class="title">WhatsApp</div><div class="sub">Coming soon</div></div></div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Connectors</h2>
+          <p class="desc">What Beast can see. The more it sees, the less you have to tell it.</p>
+          <div class="rule">
+            <div class="row"><div class="icon live">C</div><div class="main"><div class="title">Canvas</div><div class="sub">${canvas.connected ? (canvas.problem ? `Needs a reconnect: ${esc(canvas.problem)}` : "Assignments, due dates, syllabi and class pages") : "Assignments, due dates, syllabi and class pages"}</div></div>
+              <div class="end">${canvas.connected ? `<span class="btn ok" aria-disabled="true">Connected</span><button class="btn ghost" id="canvas-off">Disconnect</button>` : `<button class="btn" id="canvas-on">Connect</button>`}</div></div>
+            <div class="row"><div class="icon live">A</div><div class="main"><div class="title">Calendar</div><div class="sub">Your classes, rooms, exams and key dates in your phone's calendar. Works with Apple and Google Calendar.</div></div>
+              <div class="end">${me.calendarUrl ? `<a class="btn ${me.calendarSubscribed ? "ok" : ""}" href="${esc(me.calendarUrl)}">${me.calendarSubscribed ? "Subscribed" : "Subscribe"}</a>` : `<span class="soon">After Canvas is connected</span>`}</div></div>
+            ${CONNECTORS.map((c) => `<div class="row"><div class="icon">${c.letter}</div><div class="main"><div class="title">${esc(c.name)}</div><div class="sub">${esc(c.what)}</div></div><div class="end"><span class="soon">Coming soon</span></div></div>`).join("")}
+          </div>
+          <p class="note" id="ws-note"></p>
+        </section>`;
+      main.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = () => copy(b.dataset.copy, b)));
+      const on = document.getElementById("canvas-on");
+      if (on) on.onclick = async () => {
+        on.disabled = true;
+        const { url } = await api("/connect/canvas", { method: "POST", body: {} });
+        location.assign(url);
+      };
+      const off = document.getElementById("canvas-off");
+      if (off) off.onclick = async () => {
+        if (!confirm("Disconnect Canvas? Beast deletes your token and stops reading Canvas.")) return;
+        await api("/connect/canvas", { method: "DELETE" });
+        me = await api("/");
+        workspace();
+      };
+    }
+
+    // ---- Board ----
+    async function board(live) {
+      const { assignments } = await api("/board");
+      if (!live()) return;
+      const now = Date.now();
+      const isExam = (a) => a.type === "exam" || a.type === "quiz";
+      const open = assignments.filter((a) => a.status !== "done");
+      const exams = open.filter((a) => isExam(a) && (!a.dueAt || Date.parse(a.dueAt) > now - 864e5));
+      const upNext = open.filter((a) => !isExam(a)).sort((a, b) => (a.dueAt ?? "9").localeCompare(b.dueAt ?? "9"));
+      const weekAgo = now - 7 * 864e5;
+      const done = assignments.filter((a) => a.status === "done" && a.completedAt && Date.parse(a.completedAt) > weekAgo);
+      const item = (a, showDue = true) => {
+        const soon = a.dueAt && Date.parse(a.dueAt) - now < 2 * 864e5;
+        const link = a.canvasHtmlUrl || a.url;
+        return `<div class="item"><div class="when ${a.status !== "done" && soon ? "soon" : ""}">${showDue ? (a.dueAt ? esc(fmtDue(a.dueAt)) : "No date") : "Done"}</div>
+          <div class="what">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}${a.tentative ? `<span class="tag">tentative</span>` : ""}${a.status === "in_progress" ? `<span class="tag">in progress</span>` : ""}
+          ${a.course ? `<div class="course">${esc(a.course)}</div>` : ""}</div></div>`;
+      };
+      main.innerHTML = `
+        <section>
+          <h2>Up next</h2>
+          <p class="desc">${upNext.length ? `${upNext.length} open` : "Nothing open. Enjoy it."}</p>
+          <div class="rule">${upNext.slice(0, 40).map((a) => item(a)).join("") || `<div class="empty">You're clear.</div>`}</div>
+        </section>
+        <section>
+          <h2>Exams &amp; quizzes</h2>
+          <p class="desc">From Canvas, your syllabi and the schedule of classes. Tentative ones aren't on Canvas yet.</p>
+          <div class="rule">${exams.map((a) => item(a)).join("") || `<div class="empty">None coming up.</div>`}</div>
+        </section>
+        <section>
+          <h2>Done this week</h2>
+          <p class="desc">${done.length ? `${done.length} finished` : "Nothing yet this week."}</p>
+          <div class="rule">${done.map((a) => item(a, false)).join("") || ""}</div>
+        </section>`;
+    }
+
+    // ---- Classes ----
+    async function classes(live) {
+      const list = await api("/classes");
+      if (!live()) return;
+      const days = { M: 1, Tu: 2, W: 3, Th: 4, F: 5, Sa: 6, Su: 0 };
+      const next = (c) => {
+        const now = new Date();
+        let best = null;
+        for (const m of c.meetings) for (const d of m.days.match(/Su|Sa|Tu|Th|M|W|F/g) ?? []) {
+          const delta = (days[d] - now.getDay() + 7) % 7;
+          const label = `${delta === 0 ? "Today" : delta === 1 ? "Tomorrow" : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][days[d]]} ${to12(m.start)}`;
+          if (best === null || delta < best.delta) best = { delta, label };
+        }
+        return best?.label ?? "";
+      };
+      main.innerHTML = `
+        <section>
+          <h2>Classes</h2>
+          <p class="desc">What Beast dug up for each class. Ask Beast anything about them in iMessage.</p>
+          <div class="rule">${
+            list.length
+              ? list.map((c) => `
+                <details class="cls">
+                  <summary><span class="title">${esc(c.course)}</span><span class="meta">${esc(next(c))}${c.final ? `${next(c) ? " · " : ""}Final ${esc(new Date(c.final.date + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }))}` : ""}</span></summary>
+                  <dl class="cls-body">
+                    ${c.title || c.instructors.length ? `<div><dt>Course</dt><dd>${esc([c.code, c.title].filter(Boolean).join(" · "))}${c.instructors.length ? `<br>${esc(c.instructors.join(", "))}` : ""}</dd></div>` : ""}
+                    ${c.meetings.length ? `<div><dt>Meets</dt><dd>${c.meetings.map((m) => esc(`${m.kind} ${m.days} ${to12(m.start)}–${to12(m.end)}${m.location ? ` · ${m.location}` : ""}`)).join("<br>")}</dd></div>` : ""}
+                    ${c.final ? `<div><dt>Final</dt><dd>${esc(new Date(c.final.date + "T12:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }))}${c.final.start ? ` · ${esc(to12(c.final.start))}–${esc(to12(c.final.end))}` : ""}${c.final.location ? ` · ${esc(c.final.location)}` : ""}</dd></div>` : ""}
+                    ${c.officeHours.length ? `<div><dt>Office hours</dt><dd>${c.officeHours.map((o) => esc(`${o.who}: ${o.when}${o.where ? ` · ${o.where}` : ""}`)).join("<br>")}</dd></div>` : ""}
+                    ${c.grading.length ? `<div><dt>Grading</dt><dd>${c.grading.map((g) => esc(`${g.item} ${g.weight}`)).join(" · ")}</dd></div>` : ""}
+                    <div><dt>Links</dt><dd class="chips"><a href="${esc(c.canvasUrl)}" target="_blank" rel="noopener">Canvas</a>${c.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.kind === "website" ? "Course site" : l.label || l.kind)}</a>`).join("")}</dd></div>
+                  </dl>
+                </details>`).join("")
+              : `<div class="empty">${me.connections.canvas.connected ? "Beast is still digging through your classes. Check back in a few minutes." : "Connect Canvas in Workspace and Beast will dig through your classes."}</div>`
+          }</div>
+        </section>`;
+    }
+
+    // ---- Preferences ----
+    async function preferences(live) {
+      const memory = await api("/memory");
+      if (!live()) return;
+      const p = me.prefs;
+      main.innerHTML = `
+        <section>
+          <h2>Name</h2>
+          <p class="desc">What Beast calls you</p>
+          <div class="rule"><div class="field"><input id="name" value="${esc(me.name ?? "")}" maxlength="40" /><button class="btn ghost" data-save="name">Save</button></div></div>
+        </section>
+        <section>
+          <h2>School</h2>
+          <p class="desc">Beast learns your school's terms, schedule and tools from this</p>
+          <div class="rule"><div class="field"><input id="school" value="${esc(me.school ?? "")}" maxlength="80" /><button class="btn ghost" data-save="school">Save</button></div></div>
+        </section>
+        <section>
+          <h2>Sign-in</h2>
+          <p class="desc">The number you text Beast from</p>
+          <div class="rule"><div class="row"><div class="main"><div class="title">Phone</div><div class="sub">${esc(me.phone)}</div></div></div></div>
+        </section>
+        <section>
+          <h2>Texts from Beast</h2>
+          <p class="desc">When Beast reaches out on its own</p>
+          <div class="rule">
+            <div class="row"><div class="main"><div class="title">Morning rundown</div><div class="sub">What's due today and tomorrow</div></div><div class="end"><input type="time" id="briefTime" value="${esc(p.briefTime)}" /></div></div>
+            <div class="row"><div class="main"><div class="title">Quiet hours</div><div class="sub">No texts from Beast in this window</div></div><div class="end times"><input type="time" id="quietStart" value="${esc(p.quietStart)}" aria-label="Quiet from" /><span class="soon">to</span><input type="time" id="quietEnd" value="${esc(p.quietEnd)}" aria-label="Quiet until" /></div></div>
+            <div class="row"><div class="main"><div class="title">Deadline nudges</div><div class="sub">A heads-up before something's due</div></div><div class="end"><label class="switch"><input type="checkbox" id="nudges" ${p.nudges ? "checked" : ""} /><span></span></label></div></div>
+            <div class="row"><div class="main"><div class="title">Nightly check-in</div><div class="sub">A short note at night when something's due soon</div></div><div class="end"><label class="switch"><input type="checkbox" id="nightly" ${p.nightly ? "checked" : ""} /><span></span></label></div></div>
+          </div>
+          <p class="note" id="prefs-note"></p>
+        </section>
+        <section>
+          <h2>Memory</h2>
+          <p class="desc">What Beast remembers about you. Forget anything you want.</p>
+          <div class="rule">${memory.length ? memory.map((m) => `<div class="row"><div class="main">${esc(m.text)}</div><div class="end"><button class="btn ghost" data-forget="${esc(m.id)}">Forget</button></div></div>`).join("") : `<div class="empty">Nothing yet. Beast picks things up as you talk.</div>`}</div>
+        </section>
+        <section>
+          <h2>Data controls</h2>
+          <p class="desc">Your data is yours</p>
+          <div class="rule"><div class="row"><div class="main"><div class="title">Export my data</div><div class="sub">Everything Beast has on you, as a file</div></div><div class="end"><a class="btn ghost" href="/api/me/export">Download</a></div></div></div>
+        </section>
+        <section>
+          <h2>Account management</h2>
+          <p class="desc">Manage your account and its data</p>
+          <div class="rule"><div class="row"><div class="main"><div class="title">Delete account</div><div class="sub">Permanently deletes your account and everything Beast has on you, including backups.</div></div>
+            <div class="end"><button class="btn danger" id="delete">Delete</button></div></div>
+            <div id="confirm" hidden><div class="field"><input id="confirm-text" placeholder="Type DELETE to confirm" autocomplete="off" /><button class="btn danger" id="confirm-go">Delete forever</button></div><p class="note" id="del-note"></p></div>
+          </div>
+        </section>`;
+
+      for (const b of main.querySelectorAll("[data-save]")) {
+        b.onclick = async () => {
+          const field = b.dataset.save;
+          b.disabled = true;
+          try {
+            await api("/profile", { method: "PATCH", body: { [field]: document.getElementById(field).value } });
+            me = await api("/");
+            renderWho();
+            b.textContent = "Saved";
+            setTimeout(() => ((b.textContent = "Save"), (b.disabled = false)), 1200);
+          } catch (err) {
+            alert(err.message);
+            b.disabled = false;
+          }
+        };
+      }
+      const note = document.getElementById("prefs-note");
+      const savePrefs = async () => {
+        const body = {
+          briefTime: document.getElementById("briefTime").value,
+          quietStart: document.getElementById("quietStart").value,
+          quietEnd: document.getElementById("quietEnd").value,
+          nudges: document.getElementById("nudges").checked,
+          nightly: document.getElementById("nightly").checked,
+        };
+        try {
+          await api("/preferences", { method: "PATCH", body });
+          me.prefs = body;
+          note.className = "note";
+          note.textContent = "Saved";
+          setTimeout(() => (note.textContent = ""), 1400);
+        } catch (err) {
+          note.className = "note error";
+          note.textContent = err.message;
+        }
+      };
+      ["briefTime", "quietStart", "quietEnd", "nudges", "nightly"].forEach((id) => document.getElementById(id).addEventListener("change", savePrefs));
+      for (const b of main.querySelectorAll("[data-forget]")) {
+        b.onclick = async () => {
+          b.disabled = true;
+          await api(`/memory/${encodeURIComponent(b.dataset.forget)}`, { method: "DELETE" });
+          b.closest(".row").remove();
+        };
+      }
+      document.getElementById("delete").onclick = () => {
+        document.getElementById("confirm").hidden = false;
+        document.getElementById("confirm-text").focus();
+      };
+      document.getElementById("confirm-go").onclick = async () => {
+        const n = document.getElementById("del-note");
+        try {
+          await api("/", { method: "DELETE", body: { confirm: document.getElementById("confirm-text").value } });
+          location.assign("/");
+        } catch (err) {
+          n.className = "note error";
+          n.textContent = err.message;
+        }
+      };
+    }
+
+    // ---- invite modal ----
+    const dlg = document.getElementById("invite");
+    function fillInvite() {
+      const i = me.invite;
+      const total = i.left === null ? null : i.joined + i.left;
+      document.getElementById("invite-count").textContent = total === null ? `${i.joined} joined with your link. Owners have unlimited invites.` : `${i.joined} of ${total} invites used. Invites count when someone joins.`;
+      document.getElementById("invite-link").textContent = i.link ?? "";
+      document.getElementById("invite-name").value = i.name;
+    }
+    document.getElementById("open-invite").onclick = () => {
+      fillInvite();
+      document.getElementById("invite-note").textContent = "";
+      dlg.showModal();
+    };
+    document.getElementById("invite-close").onclick = () => dlg.close();
+    document.getElementById("invite-done").onclick = () => dlg.close();
+    document.getElementById("invite-copy").onclick = (e) => copy(me.invite.link ?? "", e.target);
+    document.getElementById("invite-save").onclick = async () => {
+      const n = document.getElementById("invite-note");
+      try {
+        const r = await api("/invite", { method: "POST", body: { name: document.getElementById("invite-name").value.trim() } });
+        me.invite = { ...me.invite, ...r };
+        fillInvite();
+        n.className = "note";
+        n.textContent = "Saved. Your old link name stops working.";
+      } catch (err) {
+        n.className = "note error";
+        n.textContent = err.message;
+      }
+    };
+
+    document.getElementById("logout").onclick = async () => {
+      await fetch("/api/auth/logout", { method: "POST" });
+      location.assign("/signin");
+    };
+
+    function renderWho() {
+      document.getElementById("who").innerHTML = `${esc(me.name ?? "")}<br>${esc(me.phone)}`;
+    }
+
+    me = await api("/").catch(() => null);
+    if (me) {
+      renderWho();
+      show(current());
+    }
+  </script>
+</body>
+</html>
