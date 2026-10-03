@@ -103,7 +103,7 @@ async function handleDirect(chatId: string, messageId: string, text: string, han
   let user = global.getUserByHandle(handle);
 
   if (!user) {
-    const result = handleStranger(handle, chatId, text);
+    const result = await handleStranger(handle, chatId, text);
     if (!result) return; // uninvited and already told: silence
     console.log(`[imessage] <- (stranger ${handle.slice(-4)}) ${text.slice(0, 80)}`);
     if (result.userId) withUser(result.userId, () => record(key, text, result.reply));

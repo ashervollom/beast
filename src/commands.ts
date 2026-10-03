@@ -1,13 +1,12 @@
 // Text commands, handled without the reply model. Only in a user's own 1:1 chat.
-// Everyone: invite <number>, feedback <text>, delete my data, new dashboard link, connect canvas, disconnect canvas.
-// Owner: /invite <number> [note], /users, /pause <name>, /unpause <name>, /spend, /stats, /model <name> <sonnet|opus>, /feedback.
+// Everyone: invite, feedback <text>, delete my data, new dashboard link, connect canvas, disconnect canvas.
+// Owner: /invite [note], /users, /pause <name>, /unpause <name>, /spend, /stats, /model <name> <sonnet|opus>, /feedback.
 import { purgeUserFromBackups } from "./backups.js";
 import { MODELS } from "./config.js";
 import { removeConnection } from "./connections.js";
 import * as global from "./globalStore.js";
 import { calendarUrl, dashboardUrl, inviteUrl } from "./links.js";
 import { summarize, track } from "./metrics.js";
-import { ensureContact, toE164 } from "./linqContacts.js";
 import { canvasOffer } from "./onboarding.js";
 import { plainPhone } from "./people.js";
 import { randomToken } from "./secrets.js";
@@ -43,12 +42,10 @@ export async function handleCommand(user: global.User, text: string): Promise<st
     return "got it, passing that straight to the guy who built me 🙏";
   }
 
-  // ---- invites: "invite 310 555 1234" ----
-  const inv = t.match(/^(?:invite|send (?:an |me an )?invite|invite link)(?:\s+(?:for\s+)?(.+))?$/i);
-  if (inv) {
+  // ---- invites: a one-use signup link (the friend enters their own number on the page) ----
+  if (/^(invite|send (an |me an )?invite|invite link|get an invite)( link)?[.!?]?$/i.test(t)) {
     if (user.role !== "owner" && user.invitesLeft <= 0) return "ur out of invites for now";
-    if (!inv[1]) return 'who\'s it for? text "invite" and their number, like invite 310 555 1234';
-    return createInviteFor(user, inv[1]);
+    return createInviteLink(user);
   }
 
   // ---- links and connections ----
@@ -82,28 +79,17 @@ export async function handleCommand(user: global.User, text: string): Promise<st
 }
 
 /**
- * Makes a one-use invite for a phone number. The number is added as a Linq contact first: on the Shared
- * Line, texts from non-contacts never reach Beast, so their "join" text would vanish otherwise.
+ * Makes a one-use signup link. The friend enters their name and number on the page, which adds them as a
+ * Linq contact and burns the link; it expires in 14 days (a user's unused invite is refunded then).
  */
-async function createInviteFor(user: global.User, numberText: string, note = ""): Promise<string> {
-  const phone = toE164(numberText);
-  if (!phone) return "that doesnt look like a us number, try like 310 555 1234";
-  if (global.getUserByHandle(phone)) return "they're already on beast 🤝";
-  let added: Awaited<ReturnType<typeof ensureContact>>;
-  try {
-    added = await ensureContact(phone);
-  } catch (err) {
-    console.error("[commands] adding contact failed:", err instanceof Error ? err.message : err);
-    return "couldnt set that up rn, try again in a bit";
-  }
-  if (added === "full") return "beast is full rn, no more room for new people. try again later";
-  const invite = global.createInvite(user.id, note, phone);
+function createInviteLink(user: global.User, note = ""): string {
+  const invite = global.createInvite(user.id, note);
   if (user.role !== "owner") global.updateUser(user.id, { invitesLeft: user.invitesLeft - 1 });
   track("invite");
   const link = inviteUrl(invite.code);
   return link
-    ? `they're set. send them this, it works once: ${link}`
-    : `they're set. have them text me "join ${invite.code}", it works once`;
+    ? `here's ur invite, send it to them. it works once and lasts 2 weeks: ${link}`
+    : `here's ur invite code, it works once: they text me "join ${invite.code}"`;
 }
 
 function findUser(query: string): global.User[] {
@@ -123,15 +109,10 @@ function one(query: string): global.User | string {
 
 async function ownerCommand(t: string): Promise<string> {
   const m = t.match(/^\/(\w+)\s*(.*)$/s);
-  if (!m) return "commands: /invite <number> [note], /users, /pause <name>, /unpause <name>, /spend, /stats, /model <name> <sonnet|opus>, /feedback";
+  if (!m) return "commands: /invite [note], /users, /pause <name>, /unpause <name>, /spend, /stats, /model <name> <sonnet|opus>, /feedback";
   const [, cmd, arg] = m;
 
-  if (cmd === "invite") {
-    // "/invite 310 555 1234 royce" -> the number, then an optional note.
-    const m = arg.match(/^([+\d\s().-]{10,})\s*(.*)$/);
-    if (!m) return "usage: /invite <number> [note]";
-    return createInviteFor(global.owner()!, m[1], m[2].trim());
-  }
+  if (cmd === "invite") return createInviteLink(global.owner()!, arg.trim());
   if (cmd === "users") {
     return (
       global
@@ -176,7 +157,7 @@ async function ownerCommand(t: string): Promise<string> {
       ? items.map((f) => `${global.getUser(f.userId)?.name ?? "?"} (${f.at.slice(5, 10)}): ${f.text}`).join("\n")
       : "no feedback yet";
   }
-  return "commands: /invite <number> [note], /users, /pause <name>, /unpause <name>, /spend, /stats, /model <name> <sonnet|opus>, /feedback";
+  return "commands: /invite [note], /users, /pause <name>, /unpause <name>, /spend, /stats, /model <name> <sonnet|opus>, /feedback";
 }
 
 /** Which features got used in the last 7 days, by how many users, and what nobody touched. */

@@ -20,6 +20,7 @@ export const JOBS = {
   backup: { everyMs: 24 * 60 * MIN },
   // Checks hourly; each course is only rescanned when due (daily in weeks 0-2, weekly after).
   courseScan: { everyMs: 60 * MIN },
+  housekeeping: { everyMs: 60 * MIN },
 } as const;
 export type JobName = keyof typeof JOBS;
 
@@ -46,6 +47,11 @@ const RUN: Record<JobName, () => Promise<void>> = {
   // One bundle per day; re-running the same day overwrites it, so restarts don't pile up backups.
   backup: async () => void (await runBackup()),
   courseScan: () => forEachUser("courseScan", () => (isConnected("canvas") ? scanCourses() : Promise.resolve())),
+  // Expired, unused invites go back to whoever made them.
+  housekeeping: async () => {
+    const n = global.refundExpiredInvites();
+    if (n) console.log(`[jobs] refunded ${n} expired invite${n > 1 ? "s" : ""}`);
+  },
 };
 
 const running = new Set<JobName>();
@@ -87,5 +93,6 @@ export function startJobs() {
     setInterval(() => void runJob(name), JOBS[name].everyMs);
   }
   void runJob("proactive");
+  void runJob("housekeeping");
   setTimeout(() => void runJob("backup"), 5 * MIN);
 }

@@ -1,13 +1,13 @@
 // Data that isn't any one user's: who the users are, invites, the waitlist, which user owns which chat,
 // names of non-users seen in group chats, feedback, webhook dedupe and one-time link tokens.
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { config, MODELS } from "./config.js";
 import { JsonDoc } from "./fileStore.js";
 import { randomToken } from "./secrets.js";
 
 export type UserStatus = "onboarding" | "active" | "paused";
-export type OnboardingStep = "name" | "school";
+export type OnboardingStep = "welcome" | "name" | "school";
 
 export interface User {
   id: string;
@@ -45,10 +45,17 @@ export interface Invite {
   phone: string | null;
   usedBy: string | null;
   usedAt: string | null;
+  /** Links stop working after this; an unused expired invite is refunded to its creator once. */
+  expiresAt?: string;
+  refunded?: boolean;
 }
 
+export type InviteState = "ok" | "used" | "expired" | "missing";
+
 export interface WaitlistEntry {
+  /** An email or an E.164 phone number. */
   email: string;
+  kind?: "email" | "phone";
   createdAt: string;
   status: "waiting" | "invited" | "joined";
   inviteCode: string | null;
@@ -197,30 +204,68 @@ export function removeUser(id: string) {
 // ---- invites ----
 
 const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"; // no 0/o/1/l/i, easy to read and type
+const CODE_LENGTH = 12; // ~59 bits, and the join endpoint is rate-limited, so codes can't be guessed
+const INVITE_TTL_MS = 14 * 864e5;
 
 export function createInvite(createdBy: string, note = "", phone: string | null = null): Invite {
   let code = "";
   do {
-    code = Array.from({ length: 8 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join("");
+    code = Array.from(randomBytes(CODE_LENGTH), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
   } while (g().invites[code]);
-  const invite: Invite = { code, createdBy, createdAt: now(), note, phone, usedBy: null, usedAt: null };
+  const invite: Invite = {
+    code,
+    createdBy,
+    createdAt: now(),
+    note,
+    phone,
+    usedBy: null,
+    usedAt: null,
+    expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
+  };
   g().invites[code] = invite;
   save();
   return invite;
 }
 
 export function getInvite(code: string): Invite | undefined {
-  return g().invites[code.toLowerCase()];
+  return g().invites[code.trim().toLowerCase()];
 }
 
-export function useInvite(code: string, userId: string) {
-  const invite = g().invites[code.toLowerCase()];
-  if (!invite || invite.usedBy) throw new Error("invite already used");
+export function inviteState(code: string): InviteState {
+  const invite = getInvite(code);
+  if (!invite) return "missing";
+  if (invite.usedBy) return "used";
+  if (invite.expiresAt && Date.parse(invite.expiresAt) < Date.now()) return "expired";
+  return "ok";
+}
+
+/**
+ * Burns the invite for this user. The check and the write happen in one synchronous step, so two people
+ * racing on the same link can't both get in. Returns false if it was already used or has expired.
+ */
+export function redeemInvite(code: string, userId: string): boolean {
+  if (inviteState(code) !== "ok") return false;
+  const invite = getInvite(code)!;
   invite.usedBy = userId;
   invite.usedAt = now();
   const entry = g().waitlist.find((w) => w.inviteCode === invite.code);
   if (entry) entry.status = "joined";
   save();
+  return true;
+}
+
+/** Gives an expired, unused invite back to whoever made it (owners have unlimited invites anyway). */
+export function refundExpiredInvites(): number {
+  let refunded = 0;
+  for (const invite of Object.values(g().invites)) {
+    if (invite.usedBy || invite.refunded || !invite.expiresAt || Date.parse(invite.expiresAt) > Date.now()) continue;
+    invite.refunded = true;
+    const user = g().users[invite.createdBy];
+    if (user && user.role !== "owner") user.invitesLeft += 1;
+    refunded++;
+  }
+  if (refunded) save();
+  return refunded;
 }
 
 export function listInvites(): Invite[] {
@@ -229,10 +274,10 @@ export function listInvites(): Invite[] {
 
 // ---- waitlist ----
 
-export function joinWaitlist(email: string): boolean {
-  const e = email.trim().toLowerCase();
+export function joinWaitlist(contact: string, kind: "email" | "phone" = "email"): boolean {
+  const e = contact.trim().toLowerCase();
   if (g().waitlist.some((w) => w.email === e)) return false;
-  g().waitlist.push({ email: e, createdAt: now(), status: "waiting", inviteCode: null });
+  g().waitlist.push({ email: e, kind, createdAt: now(), status: "waiting", inviteCode: null });
   save();
   return true;
 }

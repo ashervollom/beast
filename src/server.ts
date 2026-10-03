@@ -14,7 +14,8 @@ import { packBundle, runBackup, snapshotBundle } from "./backups.js";
 import { inviteUrl } from "./links.js";
 import { summarize, track } from "./metrics.js";
 import { migrateIfNeeded } from "./migrate.js";
-import { suggestedCanvasHost } from "./onboarding.js";
+import { joinWithInvite, suggestedCanvasHost } from "./onboarding.js";
+import { toE164 } from "./linqContacts.js";
 import { seedPeopleFromConfig } from "./people.js";
 import { tick } from "./proactive.js";
 import { statsText } from "./commands.js";
@@ -28,6 +29,21 @@ const wrap =
     Promise.resolve(fn(req, res)).catch(next);
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+/** Per-IP limit per minute for public form endpoints (in memory; enough for one server). */
+function limited(perMinute: number) {
+  const hits = new Map<string, number[]>();
+  return (req: Request, res: Response, next: NextFunction) => {
+    const key = `${req.path}|${req.ip}`;
+    const now = Date.now();
+    const recent = (hits.get(key) ?? []).filter((t) => now - t < 60_000);
+    if (recent.length >= perMinute) return void res.status(429).json({ error: "Slow down a sec and try again." });
+    recent.push(now);
+    hits.set(key, recent);
+    if (hits.size > 5000) hits.clear(); // crude cap so it can't grow without bound
+    next();
+  };
+}
 
 /** /api/admin/*: a Bearer ADMIN_TOKEN, or (locally only) a request from this computer. */
 function adminOnly(req: Request, res: Response, next: NextFunction) {
@@ -82,13 +98,33 @@ function publicRoutes(app: express.Express) {
     res.status(ok ? 200 : 503).json({ ok, staleJobs: warmingUp ? [] : stale, linqQuiet, uptimeSec: Math.round(process.uptime()) });
   });
 
-  // Dashboard: /v/<slug> serves the page; the page reads /api/viz/<slug>.
-  app.get("/v/:slug", (req, res) => {
+  // Landing page: "beast" + join the waitlist.
+  app.get("/", (_req, res) => res.sendFile(page("landing.html")));
+  app.post(
+    "/api/waitlist",
+    express.json({ limit: "2kb" }),
+    limited(10),
+    (req, res) => {
+      const contact = String(req.body?.contact ?? "").trim();
+      const phone = toE164(contact);
+      const email = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i.test(contact) ? contact.toLowerCase() : null;
+      if (!phone && !email) return void res.status(400).json({ error: "Enter an email or a US phone number." });
+      // Same answer whether or not they were already on the list.
+      global.joinWaitlist(phone ?? email!, phone ? "phone" : "email");
+      res.json({ ok: true });
+    },
+  );
+
+  // Dashboard: /dashboard/<slug> serves the page; the page reads /api/viz/<slug>.
+  app.get("/dashboard/:slug", (req, res) => {
     const user = global.getUserBySlug("dashboard", String(req.params.slug));
     if (!user) return void res.status(404).send("This link doesn't work anymore. Text Beast for a new one.");
     withUser(user.id, () => track("dashboard_open"));
-    res.sendFile(page("index.html"));
+    res.sendFile(page("dashboard.html"));
   });
+  // Links sent before the rename keep working.
+  app.get("/v/:slug", (req, res) => res.redirect(301, `/dashboard/${encodeURIComponent(String(req.params.slug))}`));
+  app.get("/i/:code", (req, res) => res.redirect(301, `/join/${encodeURIComponent(String(req.params.code))}`));
   app.get("/api/viz/:slug", (req, res) => {
     const user = global.getUserBySlug("dashboard", String(req.params.slug));
     if (!user) return void res.status(404).json({ error: "not found" });
@@ -106,13 +142,39 @@ function publicRoutes(app: express.Express) {
     res.set({ "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "no-store" }).send(withUser(user.id, () => buildCalendar(user.name)));
   });
 
-  // Invite page.
-  app.get("/i/:code", (_req, res) => res.sendFile(page("invite.html")));
-  app.get("/api/invite/:code", (req, res) => {
-    const invite = global.getInvite(String(req.params.code));
-    const valid = Boolean(invite && !invite.usedBy);
-    res.json({ valid, beastNumber: valid ? config.beastNumber : null, smsBody: valid ? `join ${invite!.code}` : null });
+  // Invite-only signup: /join/<code>. Signing up adds the number as a Linq contact and burns the code.
+  app.get("/join/:code", (_req, res) => res.sendFile(page("join.html")));
+  app.get("/api/join/:code", limited(30), (req, res) => {
+    const code = String(req.params.code);
+    const state = global.inviteState(code);
+    const inviter = state === "ok" ? global.getUser(global.getInvite(code)!.createdBy) : undefined;
+    res.json({ state, invitedBy: inviter?.role === "owner" ? null : (inviter?.name ?? null) });
   });
+  app.post(
+    "/api/join/:code",
+    express.json({ limit: "2kb" }),
+    limited(5),
+    wrap(async (req, res) => {
+      if (!req.body?.agree) return void res.status(400).json({ error: "Please agree to the privacy terms." });
+      const name = String(req.body?.name ?? "").trim();
+      if (!name) return void res.status(400).json({ error: "What should Beast call you?" });
+      const result = await joinWithInvite(String(req.params.code), String(req.body?.phone ?? ""), name);
+      if (!result.ok) {
+        const errors: Record<string, [number, string]> = {
+          used: [410, "This invite was already used. Ask whoever sent it for a new one."],
+          expired: [410, "This invite expired. Ask whoever sent it for a new one."],
+          missing: [404, "This invite link doesn't exist."],
+          bad_phone: [400, "Enter a US phone number."],
+          already_user: [409, "That number is already on Beast. Just text it!"],
+          full: [503, "Beast is full right now. Try again soon."],
+          error: [502, "Something went wrong on our end. Try again in a minute."],
+        };
+        const [status, message] = errors[result.reason];
+        return void res.status(status).json({ error: message, beastNumber: result.reason === "already_user" ? config.beastNumber : undefined });
+      }
+      res.json({ ok: true, beastNumber: config.beastNumber, smsBody: "hey beast" });
+    }),
+  );
 
   // Connect pages: one-time links Beast texts. The secret never goes through iMessage.
   app.get("/connect/:token", (_req, res) => res.sendFile(page("connect.html")));
@@ -156,9 +218,11 @@ function publicRoutes(app: express.Express) {
 
 // ---- owner app: webhook, admin API ----
 const app = express();
+// Railway sits behind one proxy hop; this makes req.ip the visitor's address for rate limiting.
+if (config.cloud) app.set("trust proxy", 1);
 app.post("/webhooks/linq", express.raw({ type: "*/*", limit: "2mb" }), linqWebhook);
 publicRoutes(app);
-app.use(express.static("public"));
+app.use(express.static("public", { index: false }));
 
 const admin = express.Router();
 admin.use(adminOnly, express.json());
@@ -263,7 +327,7 @@ app.listen(config.port, () => {
 if (config.viewerPort) {
   const viewer = express();
   publicRoutes(viewer);
-  viewer.use(express.static("public"));
+  viewer.use(express.static("public", { index: false }));
   viewer.listen(config.viewerPort, "127.0.0.1", () => {
     console.log(`Public pages at http://localhost:${config.viewerPort}`);
     startTunnel();

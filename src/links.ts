@@ -13,10 +13,10 @@ const at = (p: string) => {
   return base ? `${base}${p}` : null;
 };
 
-export const dashboardUrl = (u: User) => at(`/v/${u.dashboardSlug}`);
+export const dashboardUrl = (u: User) => at(`/dashboard/${u.dashboardSlug}`);
 export const calendarUrl = (u: User) => at(`/cal/${u.calendarSlug}.ics`);
-export const inviteUrl = (code: string) => at(`/i/${code}`);
+export const inviteUrl = (code: string) => at(`/join/${code}`);
 export const connectUrl = (token: string) => at(`/connect/${token}`);
 
-/** Private link paths that must never be posted in a group chat. */
-export const PRIVATE_LINK = /(?:https?|webcal):\/\/\S+\/(?:v|cal|connect)\/\S+/gi;
+/** Private link paths that must never be posted in a group chat (old /v/ links included). */
+export const PRIVATE_LINK = /(?:https?|webcal):\/\/\S+\/(?:dashboard|v|cal|connect)\/\S+/gi;

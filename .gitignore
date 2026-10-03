@@ -4,3 +4,4 @@ data/
 .env
 .webhook-secret
 data-test*/
+railway-secrets.txt

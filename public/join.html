@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="referrer" content="no-referrer" />
+  <title>You're invited to beast</title>
+  <link rel="stylesheet" href="/pages.css" />
+  <style>
+    h1 { font-size: 40px; letter-spacing: -0.03em; }
+    .check { display: flex; gap: 10px; align-items: flex-start; margin-top: 16px; font-size: 14px; color: var(--muted); }
+    .check input { width: auto; margin-top: 3px; }
+    .check a { color: inherit; }
+    .big { font-size: 18px; padding: 16px; }
+    .fade { animation: fade 400ms ease-out both; }
+    @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) { .fade { animation: none; } }
+  </style>
+</head>
+<body>
+  <main id="app">
+    <h1>beast</h1>
+    <p>Loading…</p>
+  </main>
+  <script type="module">
+    const code = location.pathname.split("/")[2] || "";
+    const app = document.getElementById("app");
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const prettyPhone = (e164) => (e164 || "").replace(/^\+1(\d{3})(\d{3})(\d{4})$/, "($1) $2-$3");
+
+    function textBeast(number, body, heading) {
+      const sms = number ? `sms:${number}${/iPhone|iPad|Mac/.test(navigator.userAgent) ? "&" : "?"}body=${encodeURIComponent(body)}` : null;
+      app.innerHTML = `
+        <div class="fade">
+          <h1>${esc(heading)}</h1>
+          <p>Last step: text Beast to say hi. It'll take it from there.</p>
+          ${sms ? `<a class="btn big" href="${sms}">Text Beast</a>` : ""}
+          <p class="note">${number ? `Or text <code>${esc(body)}</code> to <code>${esc(prettyPhone(number))}</code>.` : `Text <code>${esc(body)}</code> to Beast.`} Beast can't text you first, so you have to say hi.</p>
+        </div>`;
+    }
+
+    const info = await fetch(`/api/join/${encodeURIComponent(code)}`).then((r) => r.json()).catch(() => ({ state: "missing" }));
+    if (info.state !== "ok") {
+      const why = { used: "This invite was already used.", expired: "This invite expired.", missing: "This invite link doesn't exist." }[info.state] || "This invite doesn't work.";
+      app.innerHTML = `<h1>beast</h1><p>${why} Ask whoever sent it for a new one, or <a href="/" style="color:inherit">join the waitlist</a>.</p>`;
+    } else {
+      app.innerHTML = `
+        <div class="fade">
+          <h1>you're in.</h1>
+          <p>${info.invitedBy ? `${esc(info.invitedBy)} invited you to Beast. ` : ""}Beast is a school sidekick that lives in iMessage. It tracks what's due, digs through your classes, and has your back before things sneak up.</p>
+          <form id="f" novalidate>
+            <label for="name">First name</label>
+            <input id="name" autocomplete="given-name" maxlength="40" required />
+            <label for="phone">Phone number (the one you'll text from)</label>
+            <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(555) 555-0123" required />
+            <label class="check"><input id="agree" type="checkbox" /> <span>I've read the <a href="/privacy" target="_blank">privacy page</a> and I'm cool with it.</span></label>
+            <button class="btn" id="go">Join Beast</button>
+            <p class="note" id="msg"></p>
+          </form>
+        </div>`;
+      document.getElementById("f").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById("go");
+        const msg = document.getElementById("msg");
+        btn.disabled = true;
+        msg.className = "note";
+        msg.textContent = "Setting you up…";
+        const res = await fetch(`/api/join/${encodeURIComponent(code)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: document.getElementById("name").value, phone: document.getElementById("phone").value, agree: document.getElementById("agree").checked }),
+        }).catch(() => null);
+        const body = res ? await res.json().catch(() => ({})) : {};
+        if (res?.ok) return textBeast(body.beastNumber, body.smsBody, "you're set.");
+        if (res?.status === 409 && body.beastNumber) return textBeast(body.beastNumber, "hey beast", "you're already in.");
+        btn.disabled = false;
+        msg.className = "note error";
+        msg.textContent = body.error || "Something went wrong. Try again.";
+      });
+    }
+  </script>
+</body>
+</html>

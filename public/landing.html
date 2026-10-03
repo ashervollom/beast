@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>beast</title>
+  <meta name="description" content="Your school sidekick, over iMessage. Join the waitlist." />
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --text: #f2f2f0;
+      --muted: #8a8a86;
+      --field: #1a1a1a;
+      --line: #2a2a2a;
+      --accent: #f2f2f0;
+      --ok: #4dab9a;
+      --danger: #ff7369;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+    }
+    main { width: 100%; max-width: 420px; text-align: center; }
+    h1 {
+      margin: 0 0 28px;
+      font-size: clamp(56px, 16vw, 96px);
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      line-height: 1;
+      animation: rise 700ms cubic-bezier(.2,.7,.2,1) both;
+    }
+    form { display: flex; gap: 8px; animation: rise 700ms 120ms cubic-bezier(.2,.7,.2,1) both; }
+    input {
+      flex: 1;
+      min-width: 0;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: var(--field);
+      color: var(--text);
+      font: inherit;
+      outline: none;
+      transition: border-color 160ms;
+    }
+    input:focus { border-color: #555; }
+    button {
+      position: relative;
+      flex: none;
+      width: 168px;
+      height: 50px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--accent);
+      color: var(--bg);
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      overflow: hidden;
+      transition: width 420ms cubic-bezier(.2,.7,.2,1), background 300ms, transform 120ms;
+    }
+    button:active { transform: scale(0.98); }
+    button .label { transition: opacity 160ms; }
+    button svg { position: absolute; inset: 0; margin: auto; width: 22px; height: 22px; opacity: 0; }
+    button svg path { stroke-dasharray: 30; stroke-dashoffset: 30; }
+    form.done input { opacity: 0; width: 0; flex: 0; padding: 0; border: 0; transition: all 360ms; }
+    form.done button { width: 100%; background: var(--ok); cursor: default; }
+    form.done button .label { opacity: 0; }
+    form.done button svg { opacity: 1; }
+    form.done button svg path { animation: draw 420ms 200ms ease-out forwards; }
+    form.busy button { opacity: 0.7; }
+    .msg { min-height: 24px; margin-top: 14px; font-size: 14px; color: var(--muted); transition: color 200ms; }
+    .msg.error { color: var(--danger); }
+    .msg.ok { color: var(--text); animation: rise 500ms 250ms both; }
+    footer { position: fixed; bottom: 16px; left: 0; right: 0; text-align: center; font-size: 12px; }
+    footer a { color: var(--muted); text-decoration: none; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @media (max-width: 420px) {
+      form { flex-direction: column; }
+      button { width: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      button svg path { stroke-dashoffset: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>beast</h1>
+    <form id="f" novalidate>
+      <input id="contact" name="contact" type="text" inputmode="email" autocomplete="email" placeholder="email or phone number" aria-label="Email or phone number" required />
+      <button id="go" type="submit">
+        <span class="label">Join the waitlist</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+      </button>
+    </form>
+    <p class="msg" id="msg" role="status" aria-live="polite"></p>
+  </main>
+  <footer><a href="/privacy">privacy</a></footer>
+  <script type="module">
+    const form = document.getElementById("f");
+    const input = document.getElementById("contact");
+    const msg = document.getElementById("msg");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (form.classList.contains("done") || form.classList.contains("busy")) return;
+      const contact = input.value.trim();
+      if (!contact) return void input.focus();
+      form.classList.add("busy");
+      msg.className = "msg";
+      msg.textContent = "";
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact }),
+      }).catch(() => null);
+      form.classList.remove("busy");
+      if (res?.ok) {
+        form.classList.add("done");
+        msg.className = "msg ok";
+        msg.textContent = "you're on the list. we'll be in touch.";
+      } else {
+        const body = res ? await res.json().catch(() => ({})) : {};
+        msg.className = "msg error";
+        msg.textContent = body.error || "Couldn't reach Beast. Try again.";
+      }
+    });
+  </script>
+</body>
+</html>
